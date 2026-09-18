@@ -3,8 +3,14 @@ import crypto from "node:crypto";
 
 // No task names, IDs, reply text, URLs, or Codex credentials leave this module.
 const bodies = {
-  "task-complete": "Codex 有新回复，请打开手表 Codex 查看。",
-  "task-failed": "Codex 任务需要查看，请打开手表 Codex。"
+  en: {
+    "task-complete": "Codex has a new reply. Open Codex on Apple Watch to view it.",
+    "task-failed": "A Codex task needs attention. Open Codex on Apple Watch."
+  },
+  "zh-Hans": {
+    "task-complete": "Codex 有新回复，请打开手表 Codex 查看。",
+    "task-failed": "Codex 任务需要查看，请打开手表 Codex。"
+  }
 };
 
 export function createPrivateNotifier({ configPath, journalPath, fetchImpl = fetch, report = () => {} }) {
@@ -13,7 +19,7 @@ export function createPrivateNotifier({ configPath, journalPath, fetchImpl = fet
   try { delivered = new Set(JSON.parse(fs.readFileSync(journalPath, "utf8"))); } catch {}
 
   return async function notify(message) {
-    if (!bodies[message.event] || !message.eventID) return false;
+    if (!bodies.en[message.event] || !message.eventID) return false;
     const id = crypto.createHash("sha256").update(message.eventID).digest("hex");
     if (delivered.has(id) || pending.has(id)) return false;
     let config;
@@ -34,7 +40,13 @@ export function createPrivateNotifier({ configPath, journalPath, fetchImpl = fet
         headers: { "Content-Type": "application/json" },
         // Match the wearer-confirmed ungrouped test. Ordinary active priority,
         // not critical/time-sensitive; system Focus settings still apply.
-        body: JSON.stringify({ device_key: config.deviceKey, title: "Codex", body: bodies[message.event], level: "active", isArchive: "1" })
+        body: JSON.stringify({
+          device_key: config.deviceKey,
+          title: "Codex",
+          body: bodies[normalizeLanguage(config.language)][message.event],
+          level: "active",
+          isArchive: "1"
+        })
       });
       if (!response.ok || (await response.json()).code !== 200) throw new Error();
       delivered.add(id);
@@ -48,4 +60,8 @@ export function createPrivateNotifier({ configPath, journalPath, fetchImpl = fet
       return false;
     } finally { pending.delete(id); }
   };
+}
+
+function normalizeLanguage(value) {
+  return /^(zh-Hans|zh-CN|zh-SG)/i.test(value || "") ? "zh-Hans" : "en";
 }

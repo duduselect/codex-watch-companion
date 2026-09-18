@@ -37,30 +37,30 @@ private struct TaskListHomeView: View {
         NavigationStack {
             List {
                 if model.pickerItems.isEmpty {
-                    Text("正在获取项目和对话…\n请保持手机与 Mac 连接。")
+                    Text("Fetching projects and conversations…\nKeep iPhone and Mac connected.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
                 if !model.unreadPickerItems.isEmpty {
-                    Section("未读") { rows(model.unreadPickerItems) }
+                    Section("Unread") { rows(model.unreadPickerItems) }
                 }
                 if !model.pinnedPickerItems.isEmpty {
-                    Section("置顶") { rows(model.pinnedPickerItems) }
+                    Section("Pinned") { rows(model.pinnedPickerItems) }
                 }
-                Section("项目") { rows(model.projectPickerItems) }
+                Section("Projects") { rows(model.projectPickerItems) }
                 if !model.directChatPickerItems.isEmpty {
-                    Section("对话") { rows(model.directChatPickerItems) }
+                    Section("Chats") { rows(model.directChatPickerItems) }
                 }
                 Section {
-                    Button("刷新列表", systemImage: "arrow.clockwise") {
+                    Button("Refresh", systemImage: "arrow.clockwise") {
                         model.refreshPickerItems()
                     }
-                    Button("连接设置", systemImage: "gearshape") {
+                    Button("Connection Settings", systemImage: "gearshape") {
                         model.showingSettings = true
                     }
                 }
             }
-            .navigationTitle("项目与对话")
+            .navigationTitle("Projects & Chats")
             .accessibilityIdentifier("task-list-home")
             .onAppear { model.refreshPickerItems() }
         }
@@ -89,16 +89,16 @@ private struct TaskProjectView: View {
     var body: some View {
         List {
             let chats = model.chatItems(for: project)
-            if chats.isEmpty { Text("暂无对话").foregroundStyle(.secondary) }
+            if chats.isEmpty { Text("No chats").foregroundStyle(.secondary) }
             ForEach(chats) { item in
                 TaskConversationLink(model: model, item: item)
             }
             NavigationLink {
                 CompanionWatchContent(model: model)
-                    .navigationTitle("新对话")
+                    .navigationTitle("New Chat")
                     .onAppear { model.startNewChat(in: project) }
             } label: {
-                Label("新对话", systemImage: "square.and.pencil")
+                Label("New Chat", systemImage: "square.and.pencil")
             }
         }
         .navigationTitle(project.title)
@@ -137,20 +137,20 @@ private struct CompanionWatchContent: View {
                             speaker.stop()
                             model.beginRecording()
                         } label: {
-                            Label("说话", systemImage: "mic.fill")
+                            Label("Speak", systemImage: "mic.fill")
                                 .frame(maxWidth: .infinity, minHeight: 30)
                         }
                         .buttonStyle(.borderedProminent)
                         .accessibilityIdentifier("conversation-speak")
                         if WatchVoiceJobs.shared.hasUnfinishedRecording && !model.isRecordingPaused && !model.isAwaitingVoiceTranscript {
-                            Button("恢复转写") { model.retrySavedRecording() }
-                            Button("取消这段录音", role: .destructive) { model.cancelVoiceRecording() }
+                            Button("Resume Transcription") { model.retrySavedRecording() }
+                            Button("Discard Recording", role: .destructive) { model.cancelVoiceRecording() }
                         }
 
                         ScrollView {
                             VStack(alignment: .leading, spacing: 8) {
                                 if model.visualState == .review && model.pendingCodexRequest == nil {
-                                    Button(speaker.isSpeaking ? "停止朗读" : "朗读回复", systemImage: speaker.isSpeaking ? "stop.fill" : "speaker.wave.2.fill") {
+                                    Button(speaker.isSpeaking ? L10n.text("Stop speaking") : L10n.text("Read reply aloud"), systemImage: speaker.isSpeaking ? "stop.fill" : "speaker.wave.2.fill") {
                                         if speaker.isSpeaking { speaker.stop() }
                                         else { speaker.speak(model.petMessageReaderBody) }
                                     }
@@ -180,23 +180,23 @@ private struct CompanionWatchContent: View {
                     }
                     .transition(.opacity)
                     VStack {
-                        Text("正在录音…").font(.headline)
+                        Text("Recording…").font(.headline)
                         Spacer()
-                        Button("结束录音", systemImage: "stop.fill") { model.pauseRecording() }
+                        Button("Stop Recording", systemImage: "stop.fill") { model.pauseRecording() }
                             .buttonStyle(.borderedProminent)
-                        Button("取消录音", role: .destructive) { model.cancelVoiceRecording() }
+                        Button("Cancel Recording", role: .destructive) { model.cancelVoiceRecording() }
                     }
                 }
 
                 if model.isRecordingPaused {
                     ScrollView {
                         VStack(spacing: 8) {
-                            Text("录音已暂停").font(.headline)
-                            Button("转文字") { model.transcribePausedRecording() }
+                            Text("Recording Paused").font(.headline)
+                            Button("Transcribe") { model.transcribePausedRecording() }
                                 .buttonStyle(.borderedProminent)
-                            Button("继续说话") { model.beginRecording() }
+                            Button("Continue Speaking") { model.beginRecording() }
                                 .buttonStyle(.bordered)
-                            Button("取消这段录音", role: .destructive) { model.cancelVoiceRecording() }
+                            Button("Discard Recording", role: .destructive) { model.cancelVoiceRecording() }
                         }.frame(maxWidth: .infinity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -222,12 +222,12 @@ private struct CompanionWatchContent: View {
                 if model.isAwaitingVoiceTranscript && model.transcriptReview == nil && !model.isVoiceModeActive {
                     VStack(spacing: 10) {
                         ProgressView()
-                        Text("正在上传／转文字").font(.headline)
-                        Text("录音已保存\n可以放下手腕\n完成后会显示文字确认页")
+                        Text("Uploading / Transcribing").font(.headline)
+                        Text("Recording saved\nYou can lower your wrist\nThe transcript will appear when ready")
                             .font(.footnote)
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
-                        Button("取消这段录音", role: .destructive) { model.cancelVoiceRecording() }
+                        Button("Discard Recording", role: .destructive) { model.cancelVoiceRecording() }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(.black)
@@ -281,7 +281,7 @@ private struct ActiveTaskPetView: View {
                 pet: model.selectedPet,
                 state: model.petDisplayState,
                 size: CGSize(width: petWidth, height: petWidth / codexPetFrameAspect),
-                label: "Start voice",
+                label: L10n.text("Start voice"),
                 identifier: "mascot-voice-button",
                 isPrimaryHandShortcut: false,
                 action: {
@@ -423,7 +423,7 @@ private struct ProjectChatPickerView: View {
 
                 Section("Projects") {
                     if model.projectPickerItems.isEmpty {
-                        Text("尚未收到项目列表。请确认手机 Codex Watch 已连接 Mac，再重新打开此列表。")
+                        Text("No projects yet. Make sure Codex Watch on iPhone is connected to the Mac, then reopen this list.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -682,9 +682,9 @@ private struct ViewAllButton: View {
                     .frame(width: 18)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
+                    Text(L10n.text(title))
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    Text("\(remainingCount) more")
+                    Text(L10n.format("%d more", remainingCount))
                         .font(.system(size: 11, weight: .regular, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
@@ -727,7 +727,7 @@ private struct MascotPickerRow: View {
         }
         .padding(.vertical, 3)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(isSelected ? "\(pet.displayName), selected" : pet.displayName)
+        .accessibilityLabel(isSelected ? L10n.format("%@, selected", pet.displayName) : pet.displayName)
     }
 }
 
@@ -895,10 +895,10 @@ private struct ActiveTaskCard: View {
         .buttonStyle(.plain)
         .primaryHandGestureShortcut()
         .primaryAccessibilityQuickAction(
-            label: "Open message",
+            label: L10n.text("Open message"),
             action: openMessage
         )
-        .accessibilityLabel("Open message")
+        .accessibilityLabel(L10n.text("Open message"))
         .accessibilityIdentifier("active-message-card")
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
@@ -929,7 +929,7 @@ private struct ActiveTaskGlyph: View {
         case .waiting:
             Image(systemName: "clock")
                 .foregroundStyle(.secondary)
-                .accessibilityLabel("等待处理")
+                .accessibilityLabel("Waiting")
         case .failed:
             Image(systemName: "exclamationmark.circle")
                 .font(.system(size: 16, weight: .semibold))
@@ -939,7 +939,7 @@ private struct ActiveTaskGlyph: View {
                 Circle()
                     .fill(.blue)
                     .frame(width: 8, height: 8)
-                    .accessibilityLabel("Unread")
+                    .accessibilityLabel(L10n.text("Unread"))
             } else {
                 Color.clear
             }
@@ -1009,7 +1009,7 @@ private struct MessageReaderView: View {
     }
 
     private var navigationTitle: String {
-        usesTitleAsNavigationTitle ? message.title : "Message"
+        usesTitleAsNavigationTitle ? message.title : L10n.text("Message")
     }
 
     private func wordCount(_ text: String) -> Int {
@@ -1030,7 +1030,7 @@ private struct TranscriptReviewView: View {
             VStack(spacing: 4) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("已识别文字")
+                        Text("Transcript")
                             .font(.caption2).foregroundStyle(.secondary)
                         Text(transcript.text)
                             .font(.system(size: 15))
@@ -1046,9 +1046,9 @@ private struct TranscriptReviewView: View {
                 .padding(.top, 28)
 
                 HStack(spacing: 4) {
-                    Button("补充录音", action: append)
+                    Button("Add More", action: append)
                         .accessibilityIdentifier("transcript-append")
-                    Button("发送", action: send)
+                    Button("Send", action: send)
                         .accessibilityIdentifier("transcript-send")
                 }
                 .font(.system(size: 13, weight: .semibold))
@@ -1190,7 +1190,7 @@ private struct MicrophoneWaveformView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .accessibilityLabel("Microphone waveform")
+        .accessibilityLabel(L10n.text("Microphone waveform"))
         .accessibilityIdentifier("microphone-waveform")
     }
 }

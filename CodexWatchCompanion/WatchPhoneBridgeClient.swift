@@ -80,11 +80,11 @@ final class WatchVoiceJobs: NSObject, URLSessionDataDelegate, @unchecked Sendabl
             try? FileManager.default.removeItem(at: directory.appendingPathComponent("recording-paused"))
             return
         }
-        guard job == nil else { throw NSError(domain: "VoiceOutbox", code: 1, userInfo: [NSLocalizedDescriptionKey: "上一段录音仍在转写，请先恢复该段录音。"]) }
+        guard job == nil else { throw NSError(domain: "VoiceOutbox", code: 1, userInfo: [NSLocalizedDescriptionKey: L10n.text("The previous recording is still being transcribed. Resume it first.")]) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let raw = directory.appendingPathComponent("recording.raw")
         if FileManager.default.fileExists(atPath: raw.path) {
-            throw NSError(domain: "VoiceOutbox", code: 2, userInfo: [NSLocalizedDescriptionKey: "有未处理的录音，请先恢复，避免覆盖。"])
+            throw NSError(domain: "VoiceOutbox", code: 2, userInfo: [NSLocalizedDescriptionKey: L10n.text("An unfinished recording exists. Resume it first to avoid overwriting it.")])
         }
         FileManager.default.createFile(atPath: raw.path, contents: nil)
         file = try FileHandle(forWritingTo: raw)
@@ -109,9 +109,9 @@ final class WatchVoiceJobs: NSObject, URLSessionDataDelegate, @unchecked Sendabl
         }
         pausedRecording = false
         try? FileManager.default.removeItem(at: directory.appendingPathComponent("recording-paused"))
-        guard var message = recording else { throw NSError(domain: "VoiceOutbox", code: 3, userInfo: [NSLocalizedDescriptionKey: "没有录到声音，请取消后重新录音。"]) }
+        guard var message = recording else { throw NSError(domain: "VoiceOutbox", code: 3, userInfo: [NSLocalizedDescriptionKey: L10n.text("No audio was recorded. Discard it and record again.")]) }
         let data = try Data(contentsOf: directory.appendingPathComponent("recording.raw"))
-        guard !data.isEmpty else { throw NSError(domain: "VoiceOutbox", code: 3, userInfo: [NSLocalizedDescriptionKey: "没有录到声音，请取消后重新录音。"]) }
+        guard !data.isEmpty else { throw NSError(domain: "VoiceOutbox", code: 3, userInfo: [NSLocalizedDescriptionKey: L10n.text("No audio was recorded. Discard it and record again.")]) }
         message.type = "voice-job"
         message.requestID = UUID().uuidString
         message.data = data.base64EncodedString()
@@ -308,7 +308,7 @@ final class WatchHTTPBridgeClient: WatchSocketClienting {
         baseURL = endpoint
         authorization = WatchRemoteCredential.authorization(for: endpoint)
         if endpoint.scheme == "https", authorization == nil {
-            onMessage?(BridgeMessage(type: "error", body: "未配置远程设备凭证，请先完成安全配对。"))
+            onMessage?(BridgeMessage(type: "error", body: L10n.text("Remote device credentials are missing. Complete secure pairing first.")))
             return
         }
         clientID = UserDefaults.standard.string(forKey: "voiceStableClientID") ?? "watch-http-" + UUID().uuidString
@@ -357,7 +357,7 @@ final class WatchHTTPBridgeClient: WatchSocketClienting {
         }
         if message.type == "mic-pause" {
             do { try WatchVoiceJobs.shared.pause() }
-            catch { onMessage?(BridgeMessage(type: "voice-failed", body: "无法暂存录音，请取消后重试。")) }
+            catch { onMessage?(BridgeMessage(type: "voice-failed", body: L10n.text("The recording could not be saved. Discard it and try again."))) }
             return
         }
         if ["mic-start", "mic-chunk", "mic-stop"].contains(message.type) {
@@ -398,7 +398,7 @@ final class WatchHTTPBridgeClient: WatchSocketClienting {
         }
         pending.append(message)
         if pending.count > 128 {
-            fail("网络发送积压，请重新连接后再试。")
+            fail(L10n.text("The network send queue is full. Reconnect and try again."))
             return
         }
         pump()
@@ -411,7 +411,7 @@ final class WatchHTTPBridgeClient: WatchSocketClienting {
         audio.removeAll(keepingCapacity: true)
         pending.append(message)
         if pending.count > 128 {
-            fail("网络发送积压，请重新连接后再试。")
+            fail(L10n.text("The network send queue is full. Reconnect and try again."))
             return
         }
         pump()
@@ -446,12 +446,12 @@ final class WatchHTTPBridgeClient: WatchSocketClienting {
                 guard let self, self.generation == current else { return }
                 self.busy = false
                 if [401, 403].contains((response as? HTTPURLResponse)?.statusCode ?? 0) {
-                    self.fail("远程凭证无效或已撤销，请重新配对。")
+                    self.fail(L10n.text("The remote credential is invalid or revoked. Pair again."))
                     return
                 }
                 guard error == nil, (response as? HTTPURLResponse)?.statusCode == 200,
                       let data, let envelope = try? JSONDecoder().decode(Envelope.self, from: data) else {
-                    self.fail(error?.localizedDescription ?? "HTTP 连接失败")
+                    self.fail(error?.localizedDescription ?? L10n.text("HTTP connection failed"))
                     return
                 }
                 if !self.ready {
@@ -485,7 +485,7 @@ final class WatchHTTPBridgeClient: WatchSocketClienting {
         // Do not retry an uncertain command automatically: it may already have
         // reached Codex. Reconnect only restores state, never resends commands.
         disconnect()
-        onMessage?(BridgeMessage(type: "error", body: "连接中断，发送结果需确认：\(reason)"))
+        onMessage?(BridgeMessage(type: "error", body: L10n.format("Connection interrupted. Delivery is uncertain: %@", reason)))
     }
 }
 

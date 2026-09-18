@@ -12,30 +12,30 @@ struct PhoneGatewayView: View {
                     Label(model.watchLabel, systemImage: "applewatch")
                         .foregroundStyle(model.isWatchReachable ? .green : .secondary)
                 } header: {
-                    Text("连接状态")
+                    Text("Connection Status")
                 }
 
                 Section {
-                    TextField("ws://Mac 地址:17842/codex-watch", text: $model.bridgeURLString)
+                    TextField("ws://Mac-address:17842/codex-watch", text: $model.bridgeURLString)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
 
                     Button {
                         model.connect()
                     } label: {
-                        Label("连接 Mac", systemImage: "bolt.horizontal.fill")
+                        Label("Connect Mac", systemImage: "bolt.horizontal.fill")
                     }
 
                     Button {
                         model.disconnect()
                     } label: {
-                        Label("断开", systemImage: "xmark.circle")
+                        Label("Disconnect", systemImage: "xmark.circle")
                     }
                     .disabled(!model.isConnected && model.connectionState != .connecting)
                 } header: {
-                    Text("Mac Codex 桥接地址")
+                    Text("Mac Codex Bridge Address")
                 } footer: {
-                    Text("人在外面时，把这里填成 Mac 的 Tailscale 私网地址，例如 ws://100.x.y.z:17842/codex-watch。首次连接时请允许本地网络和通知权限。")
+                    Text("For remote use, enter the Mac's private Tailscale address, such as ws://100.x.y.z:17842/codex-watch. Allow Local Network and notification access when prompted.")
                 }
 
                 Section {
@@ -49,25 +49,25 @@ struct PhoneGatewayView: View {
                             .foregroundStyle(.tertiary)
                     }
                 } header: {
-                    Text("最近的 Codex 状态")
+                    Text("Latest Codex Status")
                 }
 
                 Section {
                     Button {
                         model.requestNotificationPermission()
                     } label: {
-                        Label("允许任务通知", systemImage: "bell.badge")
+                        Label("Allow Task Notifications", systemImage: "bell.badge")
                     }
 
                     Button {
                         model.sendTestNotification()
                     } label: {
-                        Label("发送测试通知", systemImage: "paperplane")
+                        Label("Send Test Notification", systemImage: "paperplane")
                     }
                 } header: {
-                    Text("通知")
+                    Text("Notifications")
                 } footer: {
-                    Text("任务完成、失败、需要审批或等待输入时，iPhone 会创建本地通知；系统会按 Apple 的通知规则把它显示到 iPhone 或 Apple Watch。")
+                    Text("iPhone creates a local notification when a task completes, fails, needs approval, or waits for input. Apple decides whether it appears on iPhone or Apple Watch.")
                 }
 
                 if let lastError = model.lastError {
@@ -75,7 +75,7 @@ struct PhoneGatewayView: View {
                         Label(lastError, systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
                     } header: {
-                        Text("提示")
+                        Text("Notice")
                     }
                 }
             }

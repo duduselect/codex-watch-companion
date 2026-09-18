@@ -2,6 +2,7 @@
   "type": "module",
   "scripts": {
     "bridge": "node bridge/codex-watch-bridge.mjs",
+    "localizations": "node scripts/generate-localizations.mjs",
     "test": "node --test tests/server/*.test.mjs",
     "check": "node --check bridge/codex-watch-bridge.mjs && node --test tests/server/*.test.mjs"
   }

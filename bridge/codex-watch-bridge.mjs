@@ -693,7 +693,7 @@ async function submitTranscriptToCodex(client, threadId, text) {
         watchQueuedTurn(client, threadId, receipt.queuedSubmission);
         return;
       } catch (queueError) {
-        error = new Error(`${error.message}；自动排队也失败：${queueError.message}`);
+        error = new Error(`${error.message}; automatic queueing also failed: ${queueError.message}`);
       }
     }
     watcher.stop();

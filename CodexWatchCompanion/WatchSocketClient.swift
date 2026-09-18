@@ -47,7 +47,7 @@ final class WatchSocketClient: WatchSocketClienting {
         onStateChange?(.connecting)
 
         guard let target = WebSocketTarget(url: url) else {
-            onMessage?(BridgeMessage(type: "error", body: "Invalid WebSocket URL"))
+            onMessage?(BridgeMessage(type: "error", body: L10n.text("Invalid WebSocket URL")))
             onStateChange?(.disconnected)
             return
         }
@@ -466,11 +466,11 @@ private enum SocketError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .closed:
-            return "Socket closed"
+            return L10n.text("Socket closed")
         case .httpFailed:
-            return "HTTP bridge request failed"
+            return L10n.text("HTTP bridge request failed")
         case .handshakeFailed(let response):
-            return "WebSocket handshake failed: \(response.prefix(80))"
+            return L10n.format("WebSocket handshake failed: %@", String(response.prefix(80)))
         }
     }
 }
@@ -483,11 +483,11 @@ enum ConnectionState: Equatable {
     var title: String {
         switch self {
         case .disconnected:
-            return "Offline"
+            return L10n.text("Offline")
         case .connecting:
-            return "Linking"
+            return L10n.text("Linking")
         case .connected:
-            return "Linked"
+            return L10n.text("Linked")
         }
     }
 

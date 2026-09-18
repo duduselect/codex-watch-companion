@@ -3,7 +3,10 @@ import XCTest
 
 final class AudioLevelMeterTests: XCTestCase {
     func testReplySpeechKeepsChineseAndLinkLabelWithoutReadingCodeOrURL() {
-        XCTAssertEqual(ReplySpeechText.plain("# 你好\n**完成**，请看[说明](https://example.com)。\n```swift\nprint(1)\n```"), "你好\n完成，请看说明。\n代码片段请查看屏幕。")
+        XCTAssertEqual(
+            ReplySpeechText.plain("# 你好\n**完成**，请看[说明](https://example.com)。\n```swift\nprint(1)\n```"),
+            "你好\n完成，请看说明。\n\(L10n.text("Code blocks are available on screen."))"
+        )
     }
 
     func testReplySpeechEmptyInputIsEmpty() {

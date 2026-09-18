@@ -100,7 +100,7 @@ final class WatchConnectivityRelay: NSObject, WCSessionDelegate {
     private func reportAudioFailure(_ payload: [String: Any]) {
         guard let type = payload["type"] as? String, type.hasPrefix("mic-") else { return }
         DispatchQueue.main.async { [weak self] in
-            self?.onDeliveryFailure?("语音传输中断，请打开手机 Codex Watch 后重新录音。")
+            self?.onDeliveryFailure?(L10n.text("Voice transfer was interrupted. Open Codex Watch on iPhone, then record again."))
         }
     }
 

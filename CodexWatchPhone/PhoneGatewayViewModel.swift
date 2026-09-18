@@ -10,8 +10,8 @@ final class PhoneGatewayViewModel: ObservableObject {
     }
     @Published private(set) var connectionState: ConnectionState = .disconnected
     @Published private(set) var isWatchReachable = false
-    @Published private(set) var latestEventTitle = "No Codex event yet"
-    @Published private(set) var latestEventBody = "The iPhone gateway will show the latest task state here."
+    @Published private(set) var latestEventTitle = L10n.text("No Codex event yet")
+    @Published private(set) var latestEventBody = L10n.text("The iPhone gateway will show the latest task state here.")
     @Published private(set) var latestEventDate: Date?
     @Published private(set) var lastError: String?
 
@@ -22,17 +22,17 @@ final class PhoneGatewayViewModel: ObservableObject {
     var connectionLabel: String {
         switch connectionState {
         case .connected:
-            return "Mac connected"
+            return L10n.text("Mac connected")
         case .connecting:
-            return "Connecting to Mac"
+            return L10n.text("Connecting to Mac")
         case .disconnected:
-            return "Mac offline"
+            return L10n.text("Mac offline")
         }
     }
 
     var watchLabel: String {
-        guard relay.isSupported else { return "WatchConnectivity unavailable" }
-        return isWatchReachable ? "Watch reachable" : "Waiting for Watch"
+        guard relay.isSupported else { return L10n.text("WatchConnectivity unavailable") }
+        return isWatchReachable ? L10n.text("Watch reachable") : L10n.text("Waiting for Watch")
     }
 
     private static let bridgeURLKey = "phoneBridgeURLString"
@@ -128,7 +128,7 @@ final class PhoneGatewayViewModel: ObservableObject {
             ["ws", "wss"].contains(url.scheme?.lowercased() ?? "")
         else {
             connectionState = .disconnected
-            lastError = "请输入 ws:// 或 wss:// 开头的 Mac 地址。"
+            lastError = L10n.text("Enter a Mac address beginning with ws:// or wss://.")
             return
         }
 
@@ -220,7 +220,7 @@ final class PhoneGatewayViewModel: ObservableObject {
             // Audio cannot be replayed meaningfully. Keep only low-frequency
             // control messages until the Mac socket is ready.
             if message.type.hasPrefix("mic-") {
-                lastError = "Mac 未连接，暂时无法传输手表语音。"
+                lastError = L10n.text("The Mac is offline, so watch audio cannot be sent yet.")
                 if message.type != "mic-chunk" {
                     relay.send(BridgeMessage(type: "error", body: lastError))
                 }
@@ -248,7 +248,7 @@ final class PhoneGatewayViewModel: ObservableObject {
         }
         print("CodexWatch gateway received type=\(message.type) state=\(message.state ?? "-") title=\(message.title ?? "-") chat=\(message.chat ?? "-") reachable=\(relay.isReachable)")
         if message.type == "error", isTransientConnectionError(message.body) {
-            lastError = message.body
+            lastError = message.body.map(L10n.bridgeText)
             relay.send(BridgeMessage(
                 type: "state",
                 state: "waiting",
@@ -259,18 +259,18 @@ final class PhoneGatewayViewModel: ObservableObject {
         }
 
         if let title = message.title, !title.isEmpty {
-            latestEventTitle = title
+            latestEventTitle = L10n.bridgeText(title)
         }
         let body = message.body ?? message.text
         if let body, !body.isEmpty {
-            latestEventBody = body
+            latestEventBody = L10n.bridgeText(body)
         }
         latestEventDate = Date()
 
         if let event = message.event, !event.isEmpty {
             notificationService.handle(message)
             if event == "task-failed" {
-                lastError = message.body
+                lastError = message.body.map(L10n.bridgeText)
             }
         }
 
@@ -280,7 +280,7 @@ final class PhoneGatewayViewModel: ObservableObject {
         let shouldQueueForWatch = message.event != nil
             || message.items != nil
             || message.state == "review"
-            || (message.state == "waiting" && message.title == "已排队")
+            || (message.state == "waiting" && ["Queued", "已排队"].contains(message.title ?? ""))
             || message.state == "failed"
             || message.type == "transcript"
             || message.type == "picker-items"

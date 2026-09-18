@@ -40,7 +40,7 @@ final class CompanionViewModelTests: XCTestCase {
 
         model.sendTranscript(transcript)
 
-        XCTAssertEqual(model.statusTitle, "Sending")
+        XCTAssertEqual(model.statusTitle, L10n.text("Sending"))
         XCTAssertEqual(model.statusBody, "Send `inlineCode` now.")
         XCTAssertEqual(model.visualState, .running)
         XCTAssertEqual(haptics.played, [.start])
@@ -171,7 +171,7 @@ final class CompanionViewModelTests: XCTestCase {
         socket.emit(BridgeMessage(type: "state", state: "failed", title: "Send failed", body: "No chat"))
         await Task.yield()
 
-        XCTAssertEqual(model.statusTitle, "Send failed")
+        XCTAssertEqual(model.statusTitle, L10n.text("Send failed"))
         XCTAssertEqual(model.visualState, .failed)
         XCTAssertEqual(haptics.played, [.notification, .failure])
     }
@@ -241,8 +241,8 @@ final class CompanionViewModelTests: XCTestCase {
 
         let restored = makeModel()
         XCTAssertEqual(restored.visualState, .thinking)
-        XCTAssertEqual(restored.petMessageTitle, "Codex is thinking")
-        XCTAssertEqual(restored.petMessageBody, "Working on it")
+        XCTAssertEqual(restored.petMessageTitle, L10n.text("Codex is thinking"))
+        XCTAssertEqual(restored.petMessageBody, L10n.text("Working on it"))
 
         restored.connect()
         XCTAssertEqual(restored.visualState, .thinking)
@@ -252,7 +252,7 @@ final class CompanionViewModelTests: XCTestCase {
         socket.emit(BridgeMessage(type: "state", state: "idle", title: "Codex", body: "Bridge ready"))
         await Task.yield()
         XCTAssertEqual(restored.visualState, .thinking)
-        XCTAssertEqual(restored.petMessageBody, "Working on it")
+        XCTAssertEqual(restored.petMessageBody, L10n.text("Working on it"))
     }
 
     func testSelectingChatAdvertisesSelectionThroughSocket() {
@@ -276,7 +276,7 @@ final class CompanionViewModelTests: XCTestCase {
         XCTAssertEqual(socket.sentMessages.last?.project, "project:/tmp/demo")
         XCTAssertEqual(socket.sentMessages.last?.chat, "thread-1")
         XCTAssertEqual(socket.sentMessages.last?.chatIndex, 4)
-        XCTAssertEqual(model.petMessageReaderBody, "正在获取回复…")
+        XCTAssertEqual(model.petMessageReaderBody, L10n.text("Fetching reply…"))
         XCTAssertEqual(model.visualState, .idle)
         XCTAssertEqual(model.petDisplayState, .waving)
     }
@@ -415,7 +415,7 @@ final class CompanionViewModelTests: XCTestCase {
         await Task.yield()
         XCTAssertEqual(model.visualState, .thinking)
         XCTAssertEqual(model.petDisplayState, .thinking)
-        XCTAssertEqual(model.petMessageBody, "Working on it")
+        XCTAssertEqual(model.petMessageBody, L10n.text("Working on it"))
     }
 
     func testPrimaryShortcutOpensCurrentReadableMessage() {
@@ -425,7 +425,10 @@ final class CompanionViewModelTests: XCTestCase {
         model.performPrimaryShortcut()
 
         XCTAssertEqual(model.messageReader?.title, "Markdown")
-        XCTAssertTrue(model.messageReader?.body.contains("inlineCode") == true)
+        XCTAssertEqual(
+            model.messageReader?.body,
+            L10n.text("Use **bold**, `inlineCode`, and [docs](https://example.com) from the watch.")
+        )
         XCTAssertFalse(audio.didStart)
     }
 
@@ -459,8 +462,8 @@ final class CompanionViewModelTests: XCTestCase {
         let model = makeModel()
 
         model.applyUITestScenario("error")
-        XCTAssertEqual(model.statusTitle, "Bridge error")
-        XCTAssertEqual(model.statusBody, "Reconnect failed")
+        XCTAssertEqual(model.statusTitle, L10n.text("Bridge error"))
+        XCTAssertEqual(model.statusBody, L10n.text("Reconnect failed"))
         XCTAssertEqual(model.visualState, .failed)
 
         model.applyUITestScenario("voice")
@@ -498,10 +501,10 @@ final class CompanionViewModelTests: XCTestCase {
         let model = makeModel(transcriptionTimeoutNanoseconds: 5_000_000)
         model.beginRecording()
         model.stopRecording()
-        XCTAssertEqual(model.statusTitle, "Transcribing")
+        XCTAssertEqual(model.statusTitle, L10n.text("Transcribing"))
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertEqual(model.visualState, .failed)
-        XCTAssertTrue(model.statusBody.contains("超时"))
+        XCTAssertEqual(model.statusBody, L10n.text("Transcription timed out. Check the iPhone and Mac connection, then record again."))
     }
 
     func testDisconnectedTranscriptionShowsFailure() async {
@@ -511,16 +514,16 @@ final class CompanionViewModelTests: XCTestCase {
         socket.onStateChange?(.connecting)
         await Task.yield()
         XCTAssertEqual(model.visualState, .failed)
-        XCTAssertTrue(model.statusBody.contains("连接已中断"))
+        XCTAssertEqual(model.statusBody, L10n.text("The connection was interrupted. Open Codex Watch on iPhone, then record again."))
     }
 
     func testTransientStateIsNotRestored() async {
         let model = makeModel()
         socket.emit(BridgeMessage(type: "state", state: "running", title: "Transcribing", body: "Processing audio"))
         await Task.yield()
-        XCTAssertEqual(model.statusTitle, "Transcribing")
+        XCTAssertEqual(model.statusTitle, L10n.text("Transcribing"))
         XCTAssertNil(defaults.data(forKey: "persistedVisibleTask"))
-        XCTAssertNotEqual(makeModel().statusTitle, "Transcribing")
+        XCTAssertNotEqual(makeModel().statusTitle, L10n.text("Transcribing"))
         model.dismissTranscript()
     }
 
@@ -529,7 +532,7 @@ final class CompanionViewModelTests: XCTestCase {
             "state": "running", "title": "Transcribing", "body": "Processing audio",
             "hasUnreadMessage": false, "signature": "old"
         ]), forKey: "persistedVisibleTask")
-        XCTAssertNotEqual(makeModel().statusTitle, "Transcribing")
+        XCTAssertNotEqual(makeModel().statusTitle, L10n.text("Transcribing"))
         XCTAssertNil(defaults.data(forKey: "persistedVisibleTask"))
     }
 

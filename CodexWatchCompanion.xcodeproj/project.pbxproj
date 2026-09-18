@@ -6,6 +6,21 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		CW0000000000000000003020 /* CodexWatchPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003002 /* CodexWatchPhoneApp.swift */; };
+		CW0000000000000000003021 /* PhoneGatewayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003003 /* PhoneGatewayViewModel.swift */; };
+		CW0000000000000000003022 /* PhoneGatewayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003004 /* PhoneGatewayView.swift */; };
+		CW0000000000000000003023 /* PhoneNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003005 /* PhoneNotificationService.swift */; };
+		CW0000000000000000003024 /* BridgeMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003006 /* BridgeMessage.swift */; };
+		CW0000000000000000003025 /* WatchSocketClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003007 /* WatchSocketClient.swift */; };
+		CW0000000000000000003026 /* WatchConnectivityRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003008 /* WatchConnectivityRelay.swift */; };
+		CW0000000000000000003027 /* CodexWatchCompanion.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CW0000000000000000000004 /* CodexWatchCompanion.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CW0000000000000000003028 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003099 /* Assets.xcassets */; };
+		CW0000000000000000003035 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003012 /* Localization.swift */; };
+		CW0000000000000000003036 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003013 /* Localizable.xcstrings */; };
+		CW0000000000000000003037 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003014 /* InfoPlist.xcstrings */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		CW0000000000000000001023 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -30,21 +45,24 @@
 		};
 /* End PBXContainerItemProxy section */
 
-/* Begin PBXBuildFile section */
-		CW0000000000000000003028 /* Phone Assets in Resources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003099 /* Phone Assets */; };
-		CW0000000000000000003020 /* CodexWatchPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003002 /* CodexWatchPhoneApp.swift */; };
-		CW0000000000000000003021 /* PhoneGatewayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003003 /* PhoneGatewayViewModel.swift */; };
-		CW0000000000000000003022 /* PhoneGatewayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003004 /* PhoneGatewayView.swift */; };
-		CW0000000000000000003023 /* PhoneNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003005 /* PhoneNotificationService.swift */; };
-		CW0000000000000000003024 /* BridgeMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003006 /* BridgeMessage.swift */; };
-		CW0000000000000000003025 /* WatchSocketClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003007 /* WatchSocketClient.swift */; };
-		CW0000000000000000003026 /* WatchConnectivityRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003008 /* WatchConnectivityRelay.swift */; };
-		CW0000000000000000003027 /* CodexWatchCompanion.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CW0000000000000000000004 /* CodexWatchCompanion.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-/* End PBXBuildFile section */
+/* Begin PBXCopyFilesBuildPhase section */
+		CW0000000000000000003034 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				CW0000000000000000003027 /* CodexWatchCompanion.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		CW0000000000000000003099 /* Phone Assets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CW0000000000000000000004 /* CodexWatchCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CodexWatchCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CW0000000000000000001004 /* CodexWatchCompanionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexWatchCompanionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CW0000000000000000002004 /* CodexWatchCompanionUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexWatchCompanionUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CW0000000000000000003001 /* CodexWatchPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CodexWatchPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CW0000000000000000003002 /* CodexWatchPhoneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexWatchPhoneApp.swift; sourceTree = "<group>"; };
 		CW0000000000000000003003 /* PhoneGatewayViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneGatewayViewModel.swift; sourceTree = "<group>"; };
@@ -53,9 +71,11 @@
 		CW0000000000000000003006 /* BridgeMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeMessage.swift; sourceTree = "<group>"; };
 		CW0000000000000000003007 /* WatchSocketClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSocketClient.swift; sourceTree = "<group>"; };
 		CW0000000000000000003008 /* WatchConnectivityRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectivityRelay.swift; sourceTree = "<group>"; };
-		CW0000000000000000003009 /* CodexWatchPhone-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		CW0000000000000000001004 /* CodexWatchCompanionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexWatchCompanionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		CW0000000000000000002004 /* CodexWatchCompanionUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexWatchCompanionUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CW0000000000000000003009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		CW0000000000000000003012 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
+		CW0000000000000000003013 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		CW0000000000000000003014 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		CW0000000000000000003099 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -107,27 +127,13 @@
 		};
 /* End PBXFrameworksBuildPhase section */
 
-/* Begin PBXCopyFilesBuildPhase section */
-		CW0000000000000000003034 /* Embed Watch Content */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
-			files = (
-				CW0000000000000000003027 /* CodexWatchCompanion.app in Embed Watch Content */,
-			);
-			name = "Embed Watch Content";
-			runOnlyForDeploymentPostprocessing = 0;
-			dstSubfolderSpec = 16;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
 /* Begin PBXGroup section */
 		CW0000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
 				CW0000000000000000000007 /* CodexWatchCompanion */,
 				CW0000000000000000003010 /* CodexWatchPhone */,
-				CW0000000000000000003011 /* Shared */,
+				CW0000000000000000003011 /* CodexWatchCompanion */,
 				CW0000000000000000001007 /* CodexWatchCompanionTests */,
 				CW0000000000000000002007 /* CodexWatchCompanionUITests */,
 				CW0000000000000000000003 /* Products */,
@@ -148,22 +154,25 @@
 		CW0000000000000000003010 /* CodexWatchPhone */ = {
 			isa = PBXGroup;
 			children = (
-				CW0000000000000000003099 /* Phone Assets */,
+				CW0000000000000000003099 /* Assets.xcassets */,
 				CW0000000000000000003002 /* CodexWatchPhoneApp.swift */,
 				CW0000000000000000003003 /* PhoneGatewayViewModel.swift */,
 				CW0000000000000000003004 /* PhoneGatewayView.swift */,
 				CW0000000000000000003005 /* PhoneNotificationService.swift */,
-				CW0000000000000000003009 /* CodexWatchPhone-Info.plist */,
+				CW0000000000000000003009 /* Info.plist */,
+				CW0000000000000000003013 /* Localizable.xcstrings */,
+				CW0000000000000000003014 /* InfoPlist.xcstrings */,
 			);
 			path = CodexWatchPhone;
 			sourceTree = "<group>";
 		};
-		CW0000000000000000003011 /* Shared */ = {
+		CW0000000000000000003011 /* CodexWatchCompanion */ = {
 			isa = PBXGroup;
 			children = (
 				CW0000000000000000003006 /* BridgeMessage.swift */,
 				CW0000000000000000003007 /* WatchSocketClient.swift */,
 				CW0000000000000000003008 /* WatchConnectivityRelay.swift */,
+				CW0000000000000000003012 /* Localization.swift */,
 			);
 			path = CodexWatchCompanion;
 			sourceTree = "<group>";
@@ -291,6 +300,7 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				"zh-Hans",
 				Base,
 			);
 			mainGroup = CW0000000000000000000002;
@@ -334,7 +344,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				CW0000000000000000003028 /* Phone Assets in Resources */,
+				CW0000000000000000003028 /* Assets.xcassets in Resources */,
+				CW0000000000000000003036 /* Localizable.xcstrings in Resources */,
+				CW0000000000000000003037 /* InfoPlist.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -373,6 +385,7 @@
 				CW0000000000000000003024 /* BridgeMessage.swift in Sources */,
 				CW0000000000000000003025 /* WatchSocketClient.swift in Sources */,
 				CW0000000000000000003026 /* WatchConnectivityRelay.swift in Sources */,
+				CW0000000000000000003035 /* Localization.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -522,7 +535,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = "$(ARCHS_STANDARD)";
-				ONLY_ACTIVE_ARCH = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
@@ -539,6 +551,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.codexwatchcompanion.phone.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
@@ -556,7 +569,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = "$(ARCHS_STANDARD)";
-				ONLY_ACTIVE_ARCH = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
@@ -573,6 +585,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.codexwatchcompanion.phone.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
@@ -609,7 +622,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CodexWatchCompanion.app/CodexWatchCompanion";
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Debug;
 		};
@@ -635,7 +648,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CodexWatchCompanion.app/CodexWatchCompanion";
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Release;
 		};
@@ -660,7 +673,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				TEST_TARGET_NAME = CodexWatchCompanion;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Debug;
 		};
@@ -684,7 +697,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				TEST_TARGET_NAME = CodexWatchCompanion;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Release;
 		};

@@ -63,14 +63,14 @@ struct CodexPet: Identifiable, Codable, Equatable {
     let imageName: String
 
     static let builtIns: [CodexPet] = [
-        CodexPet(id: "codex", displayName: "Codex", description: "The original Codex companion", imageName: "codex-spritesheet-v4"),
-        CodexPet(id: "dewey", displayName: "Dewey", description: "A tidy duck for calm workspace days", imageName: "dewey-spritesheet-v4"),
-        CodexPet(id: "fireball", displayName: "Fireball", description: "Hot path energy for fast iteration", imageName: "fireball-spritesheet-v4"),
-        CodexPet(id: "rocky", displayName: "Rocky", description: "A steady rock when the diff gets large", imageName: "rocky-spritesheet-v4"),
-        CodexPet(id: "seedy", displayName: "Seedy", description: "Small green shoots for new ideas", imageName: "seedy-spritesheet-v4"),
-        CodexPet(id: "stacky", displayName: "Stacky", description: "A balanced stack for deep work", imageName: "stacky-spritesheet-v4"),
-        CodexPet(id: "bsod", displayName: "BSOD", description: "A tiny blue-screen companion", imageName: "bsod-spritesheet-v4"),
-        CodexPet(id: "null-signal", displayName: "Null Signal", description: "Quiet signal from the void", imageName: "null-signal-spritesheet-v4")
+        CodexPet(id: "codex", displayName: "Codex", description: L10n.text("The original Codex companion"), imageName: "codex-spritesheet-v4"),
+        CodexPet(id: "dewey", displayName: "Dewey", description: L10n.text("A tidy duck for calm workspace days"), imageName: "dewey-spritesheet-v4"),
+        CodexPet(id: "fireball", displayName: "Fireball", description: L10n.text("Hot path energy for fast iteration"), imageName: "fireball-spritesheet-v4"),
+        CodexPet(id: "rocky", displayName: "Rocky", description: L10n.text("A steady rock when the diff gets large"), imageName: "rocky-spritesheet-v4"),
+        CodexPet(id: "seedy", displayName: "Seedy", description: L10n.text("Small green shoots for new ideas"), imageName: "seedy-spritesheet-v4"),
+        CodexPet(id: "stacky", displayName: "Stacky", description: L10n.text("A balanced stack for deep work"), imageName: "stacky-spritesheet-v4"),
+        CodexPet(id: "bsod", displayName: "BSOD", description: L10n.text("A tiny blue-screen companion"), imageName: "bsod-spritesheet-v4"),
+        CodexPet(id: "null-signal", displayName: "Null Signal", description: L10n.text("Quiet signal from the void"), imageName: "null-signal-spritesheet-v4")
     ]
 
     static func pet(id: String?) -> CodexPet {

@@ -2,16 +2,20 @@
 
 ![Codex Watch Companion preview](docs/assets/group-9.png)
 
+[简体中文](README.zh-CN.md) · English
+
 This personal-use extension is based on the original
 [b-nnett/codex-apple-watch](https://github.com/b-nnett/codex-apple-watch) project.
 
-## Install via Codex (prompt)
+## Install with Codex, Claude Code, or another AI coding agent
 
-Paste this into Codex while this repo is open:
+Clone or download this repository, open its folder in your coding agent, and paste this prompt:
 
 ```text
-Prepare and install Codex Watch Companion. Run CODEX_WATCH_SHOW_NETWORK_HINTS=1 ./scripts/install.sh --test --phone-device <IPHONE_DEVICE_ID> --watch-device <APPLE_WATCH_DEVICE_ID>, start the bridge, install the iPhone gateway and watchOS app, launch both, and tell me the bridge URL plus any errors. If you need the device ids, run xcrun devicectl list devices first.
+Prepare and install Codex Watch Companion on my own iPhone and paired Apple Watch. Read README.md first. Check Xcode, signing, connected-device IDs, and the Mac bridge. Then run CODEX_WATCH_SHOW_NETWORK_HINTS=1 ./scripts/install.sh --test --phone-device <IPHONE_DEVICE_ID> --watch-device <APPLE_WATCH_DEVICE_ID>, start the bridge, install and launch both apps, and diagnose any errors. Ask me only when a physical action or Apple confirmation is required.
 ```
+
+The agent can inspect the Mac, build the project, start the bridge, install the apps, and troubleshoot errors. Apple still requires the owner to perform a few physical/security steps: connect and unlock the iPhone, trust the Mac and developer certificate, enable Developer Mode, and select the Apple ID's Personal Team in Xcode. No AI agent can bypass those confirmations.
 
 For the simulator:
 
@@ -36,7 +40,14 @@ Apple Watch ⇄ WatchConnectivity ⇄ iPhone gateway ⇄ Tailscale/private netwo
 
 The iPhone owns the Mac connection, so a non-cellular Apple Watch can use the iPhone's network while you are away from the Mac. The Mac bridge reads Codex projects and chats, streams task state, forwards voice transcripts, and routes approval responses back into the same Codex app-server turn.
 
-The first screen is intentionally just the pet. Tap for voice mode, long-press for project/chat selection, and use the Digital Crown to move through active projects or chats.
+The first screen shows the available projects and chats. Open a chat, tap `Speak`, review the transcript, add more voice if needed, and send it to the same Codex task. Replies, approvals, task state, and unread status return to the watch.
+
+## Language Support
+
+- Simplified Chinese (`zh-Hans`) and English (`en`) are built in for both the iPhone and Apple Watch apps.
+- The app follows the preferred language of each device. A Chinese device displays Simplified Chinese; an English device displays English.
+- Every other language currently falls back to English, so the project is not limited to Chinese-speaking users.
+- Project names, chat names, user prompts, and Codex replies are displayed in their original language and are not translated by the app.
 
 ## What Works
 
@@ -73,6 +84,8 @@ The first screen is intentionally just the pet. Tap for voice mode, long-press f
 
 This is designed for one person's own devices. A paid Apple Developer Program membership is not required for device testing, but a free Apple Personal Team provisioning profile expires after seven days. You will need to rebuild and reinstall the iPhone/Watch pair roughly once a week. That is an Apple signing limit, not a limitation added by this project.
 
+GitHub distributes the source code, not a pre-signed App Store app. Anyone can clone or download it and use Xcode—manually or with help from Codex, Claude Code, or another coding agent—to install it on their own devices. Each person signs the app with their own Apple ID; your certificate, Apple account, device IDs, private addresses, and notification credentials are not shared by this repository.
+
 There is no permanent cloud connection hidden in this project: Tailscale provides the private path between your iPhone and Mac, and the Mac bridge runs locally on your own computer.
 
 ### First physical install with a free Apple ID
@@ -105,6 +118,24 @@ out of the public source does not reset an installed app.
 4. Allow notifications. The phone will forward task states to the watch and create notifications when Codex completes, fails, or needs your response.
 
 The watch does not need cellular service for this path. It still depends on the iPhone being reachable over Bluetooth/Wi-Fi and on iOS being allowed to wake the companion app. If iOS has suspended the gateway, WatchConnectivity may deliver a queued control message later rather than immediately; opening the iPhone app once before a long remote session gives the most reliable behavior.
+
+### Optional Bark notification fallback
+
+The iPhone app creates native local notifications. If you also want an independent completion alert when iOS has suspended the gateway, the Mac bridge can send a privacy-minimized Bark notification containing only a generic completion/failure message—never the project name, prompt, reply, URL, or Codex credentials.
+
+Copy [docs/bark.example.json](docs/bark.example.json) to:
+
+```text
+~/Library/Application Support/CodexWatchRemote/bark.json
+```
+
+Replace `YOUR_BARK_DEVICE_KEY`, set `language` to `en` or `zh-Hans`, and restrict the file to your account:
+
+```sh
+chmod 600 "$HOME/Library/Application Support/CodexWatchRemote/bark.json"
+```
+
+Unsupported notification languages fall back to English. This private configuration lives outside the repository and must never be committed.
 
 ## Install Script
 
@@ -192,12 +223,14 @@ tail -f build/codex-watch-bridge.log
 
 ## Watch Controls
 
-- Tap pet: start voice mode.
+- Open a project, then a chat: view its current task state and latest reply.
+- Speak: start voice mode in the selected chat.
 - Tap waveform: stop recording and transcribe.
-- Send: sends the transcript into the selected Codex chat.
-- Long-press pet: open project/chat picker.
+- Add More: append another recording to the visible transcript.
+- Cancel Recording: discard an empty or incorrect recording.
+- Send: send the reviewed transcript into the selected Codex chat.
+- Read Reply Aloud: play the latest reply through the Apple Watch speaker.
 - New Chat: start a fresh Codex thread for the selected project.
-- Digital Crown: move through the current project/chat target.
 - Double Tap: open visible text if present, otherwise start voice mode.
 - Reply button in message view: scroll to the bottom of the message and tap `Reply`.
 - Approval card: tap `Approve`, `Deny`, or `Approve for session`; for a Codex input prompt, tap `Voice answer` and send the transcript.

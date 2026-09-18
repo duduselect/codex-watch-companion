@@ -19,9 +19,9 @@ final class PhoneNotificationService: NSObject, UNUserNotificationCenterDelegate
             UNNotificationCategory(
                 identifier: "codex-approval-needed",
                 actions: [
-                    UNNotificationAction(identifier: "approve", title: "批准", options: [.foreground]),
-                    UNNotificationAction(identifier: "approve-session", title: "本次会话都批准", options: [.foreground]),
-                    UNNotificationAction(identifier: "decline", title: "拒绝", options: [.destructive])
+                    UNNotificationAction(identifier: "approve", title: L10n.text("Approve"), options: [.foreground]),
+                    UNNotificationAction(identifier: "approve-session", title: L10n.text("Approve for session"), options: [.foreground]),
+                    UNNotificationAction(identifier: "decline", title: L10n.text("Deny"), options: [.destructive])
                 ],
                 intentIdentifiers: [],
                 options: []
@@ -69,8 +69,8 @@ final class PhoneNotificationService: NSObject, UNUserNotificationCenterDelegate
     func sendTestNotification() {
         let message = BridgeMessage(
             type: "state",
-            title: "Codex Watch 通知测试",
-            body: "如果你看到了这条消息，任务完成通知通道已经打开。",
+            title: L10n.text("Codex Watch notification test"),
+            body: L10n.text("If you can see this message, task notifications are enabled."),
             event: "task-complete",
             eventID: "test-\(UUID().uuidString)"
         )
@@ -116,20 +116,20 @@ final class PhoneNotificationService: NSObject, UNUserNotificationCenterDelegate
     private func notificationTitle(for event: String, fallback: String?) -> String {
         switch event {
         case "task-complete":
-            return "Codex 任务完成"
+            return L10n.text("Codex task completed")
         case "task-failed":
-            return "Codex 任务失败"
+            return L10n.text("Codex task failed")
         case "approval-needed":
-            return "Codex 等待你的批准"
+            return L10n.text("Codex is waiting for your approval")
         case "input-needed":
-            return "Codex 等待你的输入"
+            return L10n.text("Codex is waiting for your input")
         default:
-            return fallback ?? "Codex Watch"
+            return fallback.map(L10n.bridgeText) ?? "Codex Watch"
         }
     }
 
     private func notificationBody(for message: BridgeMessage) -> String {
-        let source = message.body ?? message.text ?? "打开 Codex Watch 查看详情。"
+        let source = (message.body ?? message.text).map(L10n.bridgeText) ?? L10n.text("Open Codex Watch for details.")
         let compact = source.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return compact.count > 220 ? String(compact.prefix(217)) + "..." : compact
     }

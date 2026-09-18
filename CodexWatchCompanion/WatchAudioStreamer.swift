@@ -4,7 +4,7 @@ import Combine
 
 enum ReplySpeechText {
     static func plain(_ markdown: String) -> String {
-        var text = markdown.replacingOccurrences(of: "(?s)```.*?```", with: "代码片段请查看屏幕。", options: .regularExpression)
+        var text = markdown.replacingOccurrences(of: "(?s)```.*?```", with: L10n.text("Code blocks are available on screen."), options: .regularExpression)
         text = text.replacingOccurrences(of: #"!?\[([^\]]+)\]\([^\)]+\)"#, with: "$1", options: .regularExpression)
         text = text.replacingOccurrences(of: #"(?m)^\s{0,3}[#>]+\s*"#, with: "", options: .regularExpression)
         text = text.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
@@ -33,7 +33,7 @@ final class WatchReplySpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDe
         guard !text.isEmpty else { return }
         let language = text.range(of: #"[\p{Han}]"#, options: .regularExpression) != nil ? "zh-CN" : Locale.current.identifier
         guard let voice = AVSpeechSynthesisVoice(language: language) ?? AVSpeechSynthesisVoice(language: "en-US") else {
-            errorMessage = "手表暂无可用朗读声音，请检查系统语音设置。"
+            errorMessage = L10n.text("No speaking voice is available on Apple Watch. Check the system voice settings.")
             return
         }
         do {
@@ -53,7 +53,7 @@ final class WatchReplySpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDe
                     guard activated, error == nil else {
                         self.current = nil
                         self.isSpeaking = false
-                        self.errorMessage = "手表未能启动朗读，请重试。"
+                        self.errorMessage = L10n.text("Apple Watch could not start speaking. Try again.")
                         try? AVAudioSession.sharedInstance().setActive(false)
                         return
                     }
@@ -61,7 +61,7 @@ final class WatchReplySpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDe
                 }
             }
         } catch {
-            errorMessage = "无法启动手表朗读，请重试。"
+            errorMessage = L10n.text("Apple Watch could not start speaking. Try again.")
             try? AVAudioSession.sharedInstance().setActive(false)
         }
     }

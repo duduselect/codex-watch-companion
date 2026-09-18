@@ -3,6 +3,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 export function createVoiceJobs(directory, transcribe) {
+  // Persist legacy wire fallbacks so an older installed Watch build can still
+  // resume a job; current clients localize the phrases on-device.
   const active = new Set();
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   function file(owner, id) {

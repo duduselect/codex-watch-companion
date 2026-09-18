@@ -10,6 +10,8 @@ export async function withFreshReader(createReader, read) {
 }
 
 export async function readQueuedTurn(request, threadId, submission) {
+  // These fallback phrases stay compatible with already-installed personal
+  // builds. Current clients map them to English localization keys on-device.
   let cursor;
   do {
     const page = await request("thread/queue/list", { threadId, limit: 100, cursor });
