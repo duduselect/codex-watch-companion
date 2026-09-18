@@ -75,6 +75,16 @@ struct CodexPickerItem: Codable, Identifiable, Hashable {
 }
 
 struct BridgeMessage: Codable {
+    // Reconnect must use the current task, not the task selected when the
+    // transport was first opened. Copy only routing fields, never actions.
+    mutating func updateSelection(from message: BridgeMessage) {
+        if let value = message.target { target = value }
+        if let value = message.project { project = value }
+        if let value = message.chat { chat = value }
+        if let value = message.projectIndex { projectIndex = value }
+        if let value = message.chatIndex { chatIndex = value }
+        if let value = message.newChat { newChat = value }
+    }
     var type: String
     var pet: String?
     var state: String?
@@ -90,6 +100,20 @@ struct BridgeMessage: Codable {
     var capabilities: [String]?
     var target: String?
     var action: String?
+    /// Optional semantic event emitted by the Mac bridge. Unlike `state`, this
+    /// identifies a one-time transition such as a completed task or an
+    /// approval request so the iPhone can create a notification without
+    /// guessing from a localized title.
+    var event: String?
+    var eventID: String?
+    var requestID: String?
+    var requestMethod: String?
+    var command: String?
+    var reason: String?
+    var questionID: String?
+    var question: String?
+    var decision: String?
+    var answer: String?
     var delta: Int?
     var index: Int?
     var project: String?
@@ -115,6 +139,16 @@ struct BridgeMessage: Codable {
         capabilities: [String]? = nil,
         target: String? = nil,
         action: String? = nil,
+        event: String? = nil,
+        eventID: String? = nil,
+        requestID: String? = nil,
+        requestMethod: String? = nil,
+        command: String? = nil,
+        reason: String? = nil,
+        questionID: String? = nil,
+        question: String? = nil,
+        decision: String? = nil,
+        answer: String? = nil,
         delta: Int? = nil,
         index: Int? = nil,
         project: String? = nil,
@@ -139,6 +173,16 @@ struct BridgeMessage: Codable {
         self.capabilities = capabilities
         self.target = target
         self.action = action
+        self.event = event
+        self.eventID = eventID
+        self.requestID = requestID
+        self.requestMethod = requestMethod
+        self.command = command
+        self.reason = reason
+        self.questionID = questionID
+        self.question = question
+        self.decision = decision
+        self.answer = answer
         self.delta = delta
         self.index = index
         self.project = project

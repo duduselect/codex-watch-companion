@@ -50,6 +50,17 @@ describe("Codex Watch bridge E2E", { concurrency: false }, () => {
     assert.equal(response.messages.at(-1)?.body, "Bridge ready");
     assert.ok(response.messages.at(-1)?.items.some(item => item.chat === "thread-e2e-1"));
     assert.ok(response.messages.at(-1)?.items.some(item => item.kind === "project"));
+    assert.equal(response.messages.at(-1)?.chat, undefined, "gateway hello must not reset the watch to chat-1");
+  });
+
+  test("gateway reconnect preserves the recovered task identity", async () => {
+    await postMessage("identity-source", {
+      type: "state", state: "review", title: "Codex replied", body: "Done",
+      chat: "thread-e2e-1", project: "project:real"
+    });
+    const response = await postMessage("gateway-reconnect", { type: "hello", pet: "codex" });
+    assert.equal(response.messages.at(-1)?.chat, "thread-e2e-1");
+    assert.equal(response.messages.at(-1)?.project, "project:real");
   });
 
   test("transcript-send starts a Codex turn and streams status events back to the watch", async () => {
@@ -86,8 +97,90 @@ describe("Codex Watch bridge E2E", { concurrency: false }, () => {
     const finalReply = messages.findLast(message => message.title === "Codex replied");
     assert.equal(finalReply?.state, "review");
     assert.equal(finalReply?.text, longReply);
+    assert.equal(finalReply?.event, "task-complete");
+    assert.match(finalReply?.eventID || "", /^turn:.*:complete$/);
     assert.ok((finalReply?.body?.length || 0) < longReply.length);
     assert.match(finalReply?.body || "", /\.\.\.$/);
+  });
+
+  test("command approval requests can be answered and the turn continues", async () => {
+    process.env.CODEX_WATCH_MOCK_SERVER_REQUEST = "item/commandExecution/requestApproval";
+
+    await postMessage("approval-client", {
+      type: "hello",
+      pet: "codex",
+      capabilities: ["codex-pets", "approval-control"]
+    });
+
+    await postMessage("approval-client", {
+      type: "transcript-send",
+      pet: "codex",
+      text: "Run the approved command.",
+      project: `project:${path.join(tempDir, "project-one")}`,
+      chat: "thread-e2e-1",
+      target: "chat"
+    });
+
+    const approvalMessages = await pollUntil("approval-client", allMessages => {
+      return allMessages.some(message => message.event === "approval-needed");
+    });
+    const approval = approvalMessages.find(message => message.event === "approval-needed");
+    assert.equal(approval?.requestID, "mock-request-1");
+    assert.equal(approval?.requestMethod, "item/commandExecution/requestApproval");
+    assert.equal(approval?.command, "echo approved");
+
+    const response = await postMessage("approval-client", {
+      type: "approval-response",
+      requestID: approval.requestID,
+      decision: "accept"
+    });
+    assert.ok(response.messages.some(message => message.title === "Approval received"));
+
+    const continuedMessages = await pollUntil("approval-client", allMessages => {
+      return allMessages.some(message => message.event === "task-complete");
+    });
+    assert.ok(continuedMessages.some(message => message.event === "task-complete"));
+  });
+
+  test("Codex input requests can be answered with a watch transcript", async () => {
+    process.env.CODEX_WATCH_MOCK_SERVER_REQUEST = "item/tool/requestUserInput";
+
+    await postMessage("input-client", {
+      type: "hello",
+      pet: "codex",
+      capabilities: ["codex-pets", "user-input-control"]
+    });
+
+    await postMessage("input-client", {
+      type: "transcript-send",
+      pet: "codex",
+      text: "Continue the task.",
+      project: `project:${path.join(tempDir, "project-one")}`,
+      chat: "thread-e2e-1",
+      target: "chat"
+    });
+
+    const inputMessages = await pollUntil("input-client", allMessages => {
+      return allMessages.some(message => message.event === "input-needed");
+    });
+    const inputRequest = inputMessages.find(message => message.event === "input-needed");
+    assert.equal(inputRequest?.requestID, "mock-request-1");
+    assert.equal(inputRequest?.requestMethod, "item/tool/requestUserInput");
+    assert.equal(inputRequest?.questionID, "answer");
+    assert.equal(inputRequest?.question, "What should Codex do next?");
+
+    const response = await postMessage("input-client", {
+      type: "input-response",
+      requestID: inputRequest.requestID,
+      questionID: inputRequest.questionID,
+      answer: "Run the tests and summarize the result."
+    });
+    assert.ok(response.messages.some(message => message.title === "Approval received"));
+
+    const continuedMessages = await pollUntil("input-client", allMessages => {
+      return allMessages.some(message => message.event === "task-complete");
+    });
+    assert.ok(continuedMessages.some(message => message.event === "task-complete"));
   });
 
   test("reconnecting clients receive the last unread reply until it is read", async () => {
@@ -143,6 +236,17 @@ describe("Codex Watch bridge E2E", { concurrency: false }, () => {
     assert.equal(afterRead.messages.at(-1)?.body, "Bridge ready");
   });
 
+  test("reconnecting clients do not replay transient voice progress", async () => {
+    for (const title of ["Listening", "Transcribing"]) {
+      await postMessage("voice-source", {
+        type: "state", state: "running", title, body: "Processing audio"
+      });
+      const replay = await postMessage(`voice-target-${title}`, { type: "hello", pet: "codex" });
+      assert.equal(replay.messages.at(-1)?.body, "Bridge ready");
+      assert.ok(!replay.messages.some(message => ["Listening", "Transcribing"].includes(message.title)));
+    }
+  });
+
   test("reconnecting clients receive thinking state", async () => {
     const project = `project:${path.join(tempDir, "project-one")}`;
 
@@ -193,6 +297,17 @@ describe("Codex Watch bridge E2E", { concurrency: false }, () => {
     const refreshed = messages.findLast(message => message.title === "Codex replied");
     assert.equal(refreshed?.state, "review");
     assert.equal(refreshed?.text, "Reply created while the watch app was closed.");
+  });
+
+  test("selecting a task refreshes its reply without reconnecting", async () => {
+    process.env.CODEX_WATCH_MOCK_RESUME_REPLY = "Recovered selected task reply.";
+    await postMessage("selection-refresh", {
+      type: "chat-selected", pet: "codex", target: "chat",
+      project: `project:${path.join(tempDir, "project-one")}`, chat: "thread-e2e-1"
+    });
+    const messages = await pollUntil("selection-refresh", values =>
+      values.some(message => message.title === "Codex replied"));
+    assert.equal(messages.find(message => message.title === "Codex replied")?.chat, "thread-e2e-1");
   });
 
   test("new chat transcript creates a Codex thread before starting the turn", async () => {
@@ -338,6 +453,33 @@ describe("Codex Watch bridge E2E", { concurrency: false }, () => {
     assert.equal(response.messages.at(-1)?.title, "Send failed");
     assert.equal(response.messages.at(-1)?.state, "failed");
     assert.match(response.messages.at(-1)?.body || "", /empty/i);
+  });
+
+  test("active writer conflicts queue the Watch message instead of failing", async () => {
+    process.env.CODEX_WATCH_MOCK_ACTIVE_WRITER = "1";
+
+    const response = await postMessage("queue-client", {
+      type: "transcript-send",
+      pet: "codex",
+      text: "Continue from the Watch.",
+      project: `project:${path.join(tempDir, "project-one")}`,
+      chat: "thread-e2e-1",
+      target: "chat"
+    });
+
+    assert.equal(response.ok, true);
+    const queued = await pollUntil("queue-client", messages => {
+      return messages.some(message => message.title === "已排队");
+    });
+    assert.equal(queued.findLast(message => message.title === "已排队")?.state, "waiting");
+    assert.equal(queued.some(message => message.title === "Send failed"), false);
+    const reconnected = await postMessage("queue-client-reconnected", {
+      type: "hello", pet: "codex",
+      project: `project:${path.join(tempDir, "project-one")}`,
+      chat: "thread-e2e-1", target: "chat"
+    });
+    assert.equal(reconnected.messages[0]?.title, "已排队");
+    assert.equal(reconnected.messages[0]?.state, "waiting");
   });
 });
 

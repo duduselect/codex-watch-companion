@@ -7,19 +7,17 @@ struct CompanionRootView: View {
     @ObservedObject var model: CompanionViewModel
 
     var body: some View {
-        CompanionWatchContent(model: model)
+        Group {
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing"),
+               ProcessInfo.processInfo.environment["CODEX_WATCH_UI_TEST_SCENARIO"] == "transcript" {
+                NavigationStack { CompanionWatchContent(model: model) }
+            } else {
+                TaskListHomeView(model: model)
+            }
+        }
         .background(.black)
-        .ignoresSafeArea()
-        ._statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
         .sheet(isPresented: $model.showingSettings) {
             SettingsView(model: model)
-        }
-        .sheet(isPresented: $model.showingPicker) {
-            ProjectChatPickerView(model: model)
-        }
-        .sheet(isPresented: $model.showingOnboarding) {
-            OnboardingView(model: model)
         }
         .sheet(item: $model.messageReader) { message in
             MessageReaderView(
@@ -32,11 +30,101 @@ struct CompanionRootView: View {
     }
 }
 
+private struct TaskListHomeView: View {
+    @ObservedObject var model: CompanionViewModel
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if model.pickerItems.isEmpty {
+                    Text("正在获取项目和对话…\n请保持手机与 Mac 连接。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                if !model.unreadPickerItems.isEmpty {
+                    Section("未读") { rows(model.unreadPickerItems) }
+                }
+                if !model.pinnedPickerItems.isEmpty {
+                    Section("置顶") { rows(model.pinnedPickerItems) }
+                }
+                Section("项目") { rows(model.projectPickerItems) }
+                if !model.directChatPickerItems.isEmpty {
+                    Section("对话") { rows(model.directChatPickerItems) }
+                }
+                Section {
+                    Button("刷新列表", systemImage: "arrow.clockwise") {
+                        model.refreshPickerItems()
+                    }
+                    Button("连接设置", systemImage: "gearshape") {
+                        model.showingSettings = true
+                    }
+                }
+            }
+            .navigationTitle("项目与对话")
+            .accessibilityIdentifier("task-list-home")
+            .onAppear { model.refreshPickerItems() }
+        }
+    }
+
+    @ViewBuilder
+    private func rows(_ items: [CodexPickerItem]) -> some View {
+        ForEach(items) { item in
+            if model.isProjectPickerItem(item) {
+                NavigationLink {
+                    TaskProjectView(model: model, project: item)
+                } label: {
+                    PickerItemRow(item: item, isSelected: false)
+                }
+            } else {
+                TaskConversationLink(model: model, item: item)
+            }
+        }
+    }
+}
+
+private struct TaskProjectView: View {
+    @ObservedObject var model: CompanionViewModel
+    let project: CodexPickerItem
+
+    var body: some View {
+        List {
+            let chats = model.chatItems(for: project)
+            if chats.isEmpty { Text("暂无对话").foregroundStyle(.secondary) }
+            ForEach(chats) { item in
+                TaskConversationLink(model: model, item: item)
+            }
+            NavigationLink {
+                CompanionWatchContent(model: model)
+                    .navigationTitle("新对话")
+                    .onAppear { model.startNewChat(in: project) }
+            } label: {
+                Label("新对话", systemImage: "square.and.pencil")
+            }
+        }
+        .navigationTitle(project.title)
+    }
+}
+
+private struct TaskConversationLink: View {
+    @ObservedObject var model: CompanionViewModel
+    let item: CodexPickerItem
+
+    var body: some View {
+        NavigationLink {
+            CompanionWatchContent(model: model)
+                .navigationTitle(item.title)
+                .onAppear { model.selectPickerItem(item) }
+        } label: {
+            PickerItemRow(item: item, isSelected: false)
+        }
+        .accessibilityIdentifier("conversation-\(item.id)")
+    }
+}
+
 private struct CompanionWatchContent: View {
     @ObservedObject var model: CompanionViewModel
-    @State private var crownValue = 0.0
-    @State private var crownStep = 0
-    @FocusState private var isCrownFocused: Bool
+    @StateObject private var speaker = WatchReplySpeaker.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         GeometryReader { proxy in
@@ -44,26 +132,42 @@ private struct CompanionWatchContent: View {
                 Color.black
 
                 if !model.isVoiceModeActive {
-                    if model.hasPetAnnouncement {
-                        ActiveTaskPetView(model: model, canvasSize: proxy.size)
-                            .transition(.scale(scale: 0.92).combined(with: .opacity))
-                    } else {
-                        PetControlButton(
-                            pet: model.selectedPet,
-                            state: model.petDisplayState,
-                            size: petSize(in: proxy.size),
-                            label: model.primaryShortcutLabel,
-                            identifier: "primary-hand-gesture-shortcut",
-                            isPrimaryHandShortcut: true,
-                            action: {
-                                model.performPrimaryShortcut()
-                            },
-                            longPress: {
-                                model.showPicker()
+                    VStack(spacing: 8) {
+                        Button {
+                            speaker.stop()
+                            model.beginRecording()
+                        } label: {
+                            Label("说话", systemImage: "mic.fill")
+                                .frame(maxWidth: .infinity, minHeight: 30)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("conversation-speak")
+                        if WatchVoiceJobs.shared.hasUnfinishedRecording && !model.isRecordingPaused && !model.isAwaitingVoiceTranscript {
+                            Button("恢复转写") { model.retrySavedRecording() }
+                            Button("取消这段录音", role: .destructive) { model.cancelVoiceRecording() }
+                        }
+
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 8) {
+                                if model.visualState == .review && model.pendingCodexRequest == nil {
+                                    Button(speaker.isSpeaking ? "停止朗读" : "朗读回复", systemImage: speaker.isSpeaking ? "stop.fill" : "speaker.wave.2.fill") {
+                                        if speaker.isSpeaking { speaker.stop() }
+                                        else { speaker.speak(model.petMessageReaderBody) }
+                                    }
+                                    .accessibilityIdentifier("conversation-read-reply")
+                                }
+                                if let error = speaker.errorMessage {
+                                    Text(error).font(.caption).foregroundStyle(.orange)
+                                }
+                                Text(model.petMessageTitle)
+                                    .font(.headline)
+                                MarkdownText(markdown: model.petMessageReaderBody, size: 14, lineSpacing: 3)
+                                    .accessibilityIdentifier("conversation-reply")
                             }
-                        )
-                            .transition(.scale(scale: 0.84).combined(with: .opacity))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
+                    .padding(.horizontal, 8)
                 }
 
                 if model.isVoiceModeActive {
@@ -72,14 +176,38 @@ private struct CompanionWatchContent: View {
                         tint: model.selectedPet.accentColor,
                         secondaryTint: model.selectedPet.secondaryAccentColor
                     ) {
-                        model.stopRecording()
+                        model.pauseRecording()
                     }
                     .transition(.opacity)
+                    VStack {
+                        Text("正在录音…").font(.headline)
+                        Spacer()
+                        Button("结束录音", systemImage: "stop.fill") { model.pauseRecording() }
+                            .buttonStyle(.borderedProminent)
+                        Button("取消录音", role: .destructive) { model.cancelVoiceRecording() }
+                    }
+                }
+
+                if model.isRecordingPaused {
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            Text("录音已暂停").font(.headline)
+                            Button("转文字") { model.transcribePausedRecording() }
+                                .buttonStyle(.borderedProminent)
+                            Button("继续说话") { model.beginRecording() }
+                                .buttonStyle(.bordered)
+                            Button("取消这段录音", role: .destructive) { model.cancelVoiceRecording() }
+                        }.frame(maxWidth: .infinity)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.black)
+                    .zIndex(1)
                 }
 
                 if let transcript = model.transcriptReview {
                     TranscriptReviewView(
                         transcript: transcript,
+                        append: { model.appendRecording() },
                         close: {
                             model.dismissTranscript()
                         },
@@ -91,32 +219,43 @@ private struct CompanionWatchContent: View {
                     .zIndex(2)
                 }
 
+                if model.isAwaitingVoiceTranscript && model.transcriptReview == nil && !model.isVoiceModeActive {
+                    VStack(spacing: 10) {
+                        ProgressView()
+                        Text("正在上传／转文字").font(.headline)
+                        Text("录音已保存\n可以放下手腕\n完成后会显示文字确认页")
+                            .font(.footnote)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                        Button("取消这段录音", role: .destructive) { model.cancelVoiceRecording() }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.black)
+                    .accessibilityIdentifier("voice-transcription-progress")
+                    .zIndex(1)
+                }
+
+                if let request = model.pendingCodexRequest,
+                   !model.isVoiceModeActive,
+                   model.transcriptReview == nil {
+                    PendingCodexRequestView(
+                        model: model,
+                        request: request
+                    )
+                    .transition(.opacity)
+                    .zIndex(3)
+                }
+
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .contentShape(Rectangle())
-            .focusable(true, interactions: .edit)
-            .focusEffectDisabled()
-            .focused($isCrownFocused)
-            .digitalCrownRotation(
-                $crownValue,
-                from: -10_000,
-                through: 10_000,
-                by: 1,
-                sensitivity: .medium,
-                isContinuous: false,
-                isHapticFeedbackEnabled: true
-            )
-            .onAppear {
-                isCrownFocused = true
-            }
-            .onChange(of: crownValue) { _, newValue in
-                let newStep = Int(newValue.rounded())
-                guard newStep != crownStep else { return }
-                model.rotateCrown(delta: newStep - crownStep)
-                crownStep = newStep
-            }
+            // Keep the Crown available to scroll sheets and replies. Task
+            // routing is changed only by selecting a real item in the picker.
         }
         .foregroundStyle(.white)
+        .onChange(of: model.isVoiceModeActive) { _, active in
+            if active { speaker.stop() }
+        }
         .animation(.easeInOut(duration: 0.16), value: model.isVoiceModeActive)
         .animation(.easeInOut(duration: 0.16), value: model.hasPetAnnouncement)
     }
@@ -265,6 +404,7 @@ private struct ProjectChatPickerView: View {
                             .font(.system(size: 14, weight: .bold, design: .rounded))
                     }
                     .accessibilityIdentifier("picker-new-chat-button")
+                    .disabled(model.projectPickerItems.isEmpty)
                 }
 
                 if !model.unreadPickerItems.isEmpty {
@@ -282,6 +422,11 @@ private struct ProjectChatPickerView: View {
                 }
 
                 Section("Projects") {
+                    if model.projectPickerItems.isEmpty {
+                        Text("尚未收到项目列表。请确认手机 Codex Watch 已连接 Mac，再重新打开此列表。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                     if model.projectPickerItems.count > pickerVisibleItemLimit && !showsAllProjects {
                         ViewAllButton(
                             title: "View all",
@@ -781,6 +926,10 @@ private struct ActiveTaskGlyph: View {
 
     var body: some View {
         switch state {
+        case .waiting:
+            Image(systemName: "clock")
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("等待处理")
         case .failed:
             Image(systemName: "exclamationmark.circle")
                 .font(.system(size: 16, weight: .semibold))
@@ -872,34 +1021,42 @@ private struct MessageReaderView: View {
 
 private struct TranscriptReviewView: View {
     let transcript: VoiceTranscript
+    let append: () -> Void
     let close: () -> Void
     let send: () -> Void
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            VStack(spacing: 10) {
+            VStack(spacing: 4) {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(transcript.title)
-                            .font(.system(size: 17, weight: .bold, design: .rounded))
-
-                        MarkdownText(markdown: transcript.text, size: 15, lineSpacing: 3)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("已识别文字")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Text(transcript.text)
+                            .font(.system(size: 15))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(nil)
                             .accessibilityIdentifier("transcript-review-body")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.top, 12)
+                    .padding(.horizontal, 8)
                 }
-                .padding(.top, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .layoutPriority(1)
+                .padding(.top, 28)
 
-                Button(action: send) {
-                    Text("Send")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .frame(maxWidth: .infinity)
+                HStack(spacing: 4) {
+                    Button("补充录音", action: append)
+                        .accessibilityIdentifier("transcript-append")
+                    Button("发送", action: send)
+                        .accessibilityIdentifier("transcript-send")
                 }
+                .font(.system(size: 13, weight: .semibold))
                 .buttonStyle(.bordered)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
+                .controlSize(.small)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+                .padding(.bottom, 2)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("transcript-review")
@@ -916,6 +1073,73 @@ private struct TranscriptReviewView: View {
             .padding(.trailing, 8)
         }
         .background(.black)
+    }
+}
+
+private struct PendingCodexRequestView: View {
+    @ObservedObject var model: CompanionViewModel
+    let request: PendingCodexRequest
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: request.isInputRequest ? "text.bubble.fill" : "hand.raised.fill")
+                    .foregroundStyle(request.isInputRequest ? .blue : .orange)
+                Text(request.title)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .lineLimit(2)
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(request.body)
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+
+                    if let command = request.command, !command.isEmpty {
+                        Text(command)
+                            .font(.system(size: 11, weight: .regular, design: .monospaced))
+                            .foregroundStyle(.cyan)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 92)
+
+            if request.isInputRequest {
+                Button {
+                    model.beginRecording()
+                } label: {
+                    Label("Voice answer", systemImage: "mic.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+            } else {
+                HStack(spacing: 7) {
+                    Button("Deny") {
+                        model.declinePendingRequest()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("Approve") {
+                        model.approvePendingRequest()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+
+                Button("Approve for session") {
+                    model.approvePendingRequestForSession()
+                }
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.black)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("pending-codex-request")
     }
 }
 

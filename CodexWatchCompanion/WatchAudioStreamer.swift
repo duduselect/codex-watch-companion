@@ -1,5 +1,94 @@
 import AVFoundation
 import Foundation
+import Combine
+
+enum ReplySpeechText {
+    static func plain(_ markdown: String) -> String {
+        var text = markdown.replacingOccurrences(of: "(?s)```.*?```", with: "代码片段请查看屏幕。", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"!?\[([^\]]+)\]\([^\)]+\)"#, with: "$1", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"(?m)^\s{0,3}[#>]+\s*"#, with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// On-device speech, explicitly started by the wearer. No push or cloud TTS.
+@MainActor
+final class WatchReplySpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+    static let shared = WatchReplySpeaker()
+    @Published private(set) var isSpeaking = false
+    @Published private(set) var errorMessage: String?
+    private let synthesizer = AVSpeechSynthesizer()
+    private var current: AVSpeechUtterance?
+
+    override init() {
+        super.init()
+        synthesizer.delegate = self
+    }
+
+    func speak(_ markdown: String) {
+        stop()
+        errorMessage = nil
+        let text = ReplySpeechText.plain(markdown)
+        guard !text.isEmpty else { return }
+        let language = text.range(of: #"[\p{Han}]"#, options: .regularExpression) != nil ? "zh-CN" : Locale.current.identifier
+        guard let voice = AVSpeechSynthesisVoice(language: language) ?? AVSpeechSynthesisVoice(language: "en-US") else {
+            errorMessage = "手表暂无可用朗读声音，请检查系统语音设置。"
+            return
+        }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default)
+            let utterance = AVSpeechUtterance(string: text)
+            utterance.voice = voice
+            utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+            current = utterance
+            isSpeaking = true
+            // watchOS requires asynchronous activation for audio-session setup.
+            // Keep the default route: longFormAudio can require Bluetooth on SE2.
+            // This does not by itself guarantee background speaker eligibility.
+            session.activate(options: []) { [weak self] activated, error in
+                Task { @MainActor [weak self] in
+                    guard let self, self.current === utterance else { return }
+                    guard activated, error == nil else {
+                        self.current = nil
+                        self.isSpeaking = false
+                        self.errorMessage = "手表未能启动朗读，请重试。"
+                        try? AVAudioSession.sharedInstance().setActive(false)
+                        return
+                    }
+                    self.synthesizer.speak(utterance)
+                }
+            }
+        } catch {
+            errorMessage = "无法启动手表朗读，请重试。"
+            try? AVAudioSession.sharedInstance().setActive(false)
+        }
+    }
+
+    func stop() {
+        guard current != nil else { return }
+        current = nil
+        synthesizer.stopSpeaking(at: .immediate)
+        isSpeaking = false
+        try? AVAudioSession.sharedInstance().setActive(false)
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in self?.finished(utterance) }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in self?.finished(utterance) }
+    }
+
+    private func finished(_ utterance: AVSpeechUtterance) {
+        guard current === utterance else { return }
+        current = nil
+        isSpeaking = false
+        try? AVAudioSession.sharedInstance().setActive(false)
+    }
+}
 
 protocol WatchAudioStreaming: AnyObject {
     func requestPermission(_ completion: @escaping (Bool) -> Void)

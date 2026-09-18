@@ -49,6 +49,48 @@ final class CompanionViewModelTests: XCTestCase {
         XCTAssertEqual(socket.sentMessages.last?.state, PetVisualState.running.rawValue)
     }
 
+    func testPauseThenResumeDoesNotStartTranscription() {
+        let model = makeModel()
+        model.beginRecording()
+        model.pauseRecording()
+        XCTAssertTrue(model.isRecordingPaused)
+        XCTAssertFalse(model.isRecording)
+        XCTAssertFalse(model.isAwaitingVoiceTranscript)
+        XCTAssertEqual(socket.sentMessages.last?.type, "mic-pause")
+        model.beginRecording()
+        XCTAssertTrue(model.isRecording)
+        XCTAssertFalse(model.isRecordingPaused)
+        model.pauseRecording()
+        model.transcribePausedRecording()
+        XCTAssertTrue(model.isAwaitingVoiceTranscript)
+        XCTAssertEqual(socket.sentMessages.last?.type, "mic-stop")
+    }
+
+    func testCancelAppendKeepsEarlierTextAndAllowsNewRecording() {
+        let model = makeModel()
+        model.transcriptReview = VoiceTranscript(title: "草稿", text: "保留前一句")
+        model.appendRecording()
+        model.pauseRecording()
+        model.cancelVoiceRecording()
+        XCTAssertFalse(model.isRecordingPaused)
+        XCTAssertFalse(model.isAwaitingVoiceTranscript)
+        XCTAssertEqual(model.transcriptReview?.text, "保留前一句")
+        XCTAssertEqual(socket.sentMessages.last?.type, "mic-cancel")
+        model.appendRecording()
+        XCTAssertTrue(model.isRecording)
+    }
+
+    func testEmptyVoiceResultEndsWaitingWithoutFakeTranscript() async {
+        let model = makeModel()
+        model.beginRecording()
+        model.stopRecording()
+        socket.emit(BridgeMessage(type: "voice-empty", requestID: "empty-recording"))
+        await Task.yield()
+        XCTAssertFalse(model.isAwaitingVoiceTranscript)
+        XCTAssertNil(model.transcriptReview)
+        XCTAssertEqual(model.visualState, .idle)
+    }
+
     func testEmptyTranscriptDoesNotSendAndPlaysFailure() {
         let model = makeModel()
 
@@ -67,6 +109,57 @@ final class CompanionViewModelTests: XCTestCase {
         XCTAssertEqual(model.transcriptReview?.text, "Hello **watch**.")
         XCTAssertEqual(model.visualState, .idle)
         XCTAssertEqual(haptics.played, [.notification])
+    }
+
+    func testAppendRecordingKeepsDraftAndSendsCombinedText() async {
+        let model = makeModel()
+        model.transcriptReview = VoiceTranscript(title: "草稿", text: "第一句")
+        model.appendRecording()
+        XCTAssertNil(model.transcriptReview)
+        XCTAssertTrue(model.isRecording)
+        model.stopRecording()
+        XCTAssertTrue(model.isAwaitingVoiceTranscript)
+        socket.emit(BridgeMessage(type: "transcript", text: "第二句"))
+        await Task.yield()
+        XCTAssertFalse(model.isAwaitingVoiceTranscript)
+        XCTAssertEqual(model.transcriptReview?.text, "第一句\n第二句")
+        model.appendRecording()
+        model.stopRecording()
+        socket.emit(BridgeMessage(type: "transcript", text: "第三句"))
+        await Task.yield()
+        XCTAssertEqual(model.transcriptReview?.text, "第一句\n第二句\n第三句")
+        model.sendTranscript(model.transcriptReview!)
+        XCTAssertEqual(socket.sentMessages.last?.text, "第一句\n第二句\n第三句")
+    }
+
+    func testAppendFailurePreservesOriginalDraft() async {
+        let model = makeModel()
+        model.transcriptReview = VoiceTranscript(title: "草稿", text: "保留这句")
+        model.appendRecording()
+        model.stopRecording()
+        socket.emit(BridgeMessage(type: "error", body: "Transcription failed"))
+        await Task.yield()
+        XCTAssertEqual(model.transcriptReview?.text, "保留这句")
+    }
+
+    func testAppendMicrophoneDenialPreservesOriginalDraft() {
+        let model = makeModel()
+        audio.permissionAllowed = false
+        model.transcriptReview = VoiceTranscript(title: "草稿", text: "保留这句")
+        model.appendRecording()
+        XCTAssertEqual(model.transcriptReview?.text, "保留这句")
+    }
+
+    func testDurableTranscriptResultIsNotAppendedTwice() async {
+        let model = makeModel()
+        model.transcriptReview = VoiceTranscript(title: "草稿", text: "第一句")
+        let result = BridgeMessage(type: "transcript", text: "第二句", requestID: "recording-result")
+        socket.emit(result)
+        await Task.yield()
+        socket.emit(result)
+        await Task.yield()
+        XCTAssertEqual(model.transcriptReview?.text, "第一句\n第二句")
+        XCTAssertEqual(makeModel().transcriptReview?.text, "第一句\n第二句")
     }
 
     func testReplyAndFailureStateHapticsAreDeduped() async {
@@ -183,7 +276,7 @@ final class CompanionViewModelTests: XCTestCase {
         XCTAssertEqual(socket.sentMessages.last?.project, "project:/tmp/demo")
         XCTAssertEqual(socket.sentMessages.last?.chat, "thread-1")
         XCTAssertEqual(socket.sentMessages.last?.chatIndex, 4)
-        XCTAssertFalse(model.hasPetAnnouncement)
+        XCTAssertEqual(model.petMessageReaderBody, "正在获取回复…")
         XCTAssertEqual(model.visualState, .idle)
         XCTAssertEqual(model.petDisplayState, .waving)
     }
@@ -376,13 +469,89 @@ final class CompanionViewModelTests: XCTestCase {
         XCTAssertGreaterThan(model.waveformLevels.max() ?? 0, 0.8)
     }
 
-    private func makeModel() -> CompanionViewModel {
+    func testInitialPickerNeverShowsDemoProjects() {
+        XCTAssertTrue(makeModel().pickerItems.isEmpty)
+    }
+
+    func testLargeRelayPayloadReassemblesOutOfOrder() throws {
+        let payload: [String: Any] = ["type": "picker-items", "text": String(repeating: "项目名称", count: 20_000)]
+        let parts = WatchConnectivityRelay.wirePayloads(payload)
+        XCTAssertGreaterThan(parts.count, 1)
+        let assembler = RelayChunkAssembler()
+        var result: [String: Any]?
+        for part in parts.reversed() {
+            XCTAssertLessThanOrEqual((part["data"] as? Data)?.count ?? 0, 20_000)
+            if let completed = assembler.receive(part) { result = completed }
+        }
+        XCTAssertEqual(result?["text"] as? String, payload["text"] as? String)
+    }
+
+    func testIncompleteRelayPayloadIsNotDelivered() {
+        let parts = WatchConnectivityRelay.wirePayloads(["text": String(repeating: "x", count: 45_000)])
+        let assembler = RelayChunkAssembler()
+        XCTAssertNil(assembler.receive(parts[0]))
+        XCTAssertNil(assembler.receive(parts[0]))
+        XCTAssertNil(assembler.receive(["relayChunkID": "bad", "index": -1, "count": 2, "data": Data()]))
+    }
+
+    func testTranscriptionTimesOutInsteadOfWaitingForever() async throws {
+        let model = makeModel(transcriptionTimeoutNanoseconds: 5_000_000)
+        model.beginRecording()
+        model.stopRecording()
+        XCTAssertEqual(model.statusTitle, "Transcribing")
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(model.visualState, .failed)
+        XCTAssertTrue(model.statusBody.contains("超时"))
+    }
+
+    func testDisconnectedTranscriptionShowsFailure() async {
+        let model = makeModel()
+        model.beginRecording()
+        model.stopRecording()
+        socket.onStateChange?(.connecting)
+        await Task.yield()
+        XCTAssertEqual(model.visualState, .failed)
+        XCTAssertTrue(model.statusBody.contains("连接已中断"))
+    }
+
+    func testTransientStateIsNotRestored() async {
+        let model = makeModel()
+        socket.emit(BridgeMessage(type: "state", state: "running", title: "Transcribing", body: "Processing audio"))
+        await Task.yield()
+        XCTAssertEqual(model.statusTitle, "Transcribing")
+        XCTAssertNil(defaults.data(forKey: "persistedVisibleTask"))
+        XCTAssertNotEqual(makeModel().statusTitle, "Transcribing")
+        model.dismissTranscript()
+    }
+
+    func testOldPersistedTranscriptionIsRemoved() throws {
+        defaults.set(try JSONSerialization.data(withJSONObject: [
+            "state": "running", "title": "Transcribing", "body": "Processing audio",
+            "hasUnreadMessage": false, "signature": "old"
+        ]), forKey: "persistedVisibleTask")
+        XCTAssertNotEqual(makeModel().statusTitle, "Transcribing")
+        XCTAssertNil(defaults.data(forKey: "persistedVisibleTask"))
+    }
+
+    func testSuccessfulTranscriptCancelsTimeout() async throws {
+        let model = makeModel(transcriptionTimeoutNanoseconds: 20_000_000)
+        model.beginRecording()
+        model.stopRecording()
+        socket.emit(BridgeMessage(type: "transcript", text: "你好"))
+        await Task.yield()
+        try await Task.sleep(nanoseconds: 60_000_000)
+        XCTAssertEqual(model.transcriptReview?.text, "你好")
+        XCTAssertEqual(model.visualState, .idle)
+    }
+
+    private func makeModel(transcriptionTimeoutNanoseconds: UInt64 = 45_000_000_000) -> CompanionViewModel {
         CompanionViewModel(
             socket: socket,
             audio: audio,
             runtimeKeeper: runtime,
             haptics: haptics,
-            defaults: defaults
+            defaults: defaults,
+            transcriptionTimeoutNanoseconds: transcriptionTimeoutNanoseconds
         )
     }
 }

@@ -21,10 +21,39 @@
 			remoteGlobalIDString = CW0000000000000000000013;
 			remoteInfo = CodexWatchCompanion;
 		};
+		CW0000000000000000003051 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CW0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CW0000000000000000000013;
+			remoteInfo = CodexWatchCompanion;
+		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXBuildFile section */
+		CW0000000000000000003028 /* Phone Assets in Resources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003099 /* Phone Assets */; };
+		CW0000000000000000003020 /* CodexWatchPhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003002 /* CodexWatchPhoneApp.swift */; };
+		CW0000000000000000003021 /* PhoneGatewayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003003 /* PhoneGatewayViewModel.swift */; };
+		CW0000000000000000003022 /* PhoneGatewayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003004 /* PhoneGatewayView.swift */; };
+		CW0000000000000000003023 /* PhoneNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003005 /* PhoneNotificationService.swift */; };
+		CW0000000000000000003024 /* BridgeMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003006 /* BridgeMessage.swift */; };
+		CW0000000000000000003025 /* WatchSocketClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003007 /* WatchSocketClient.swift */; };
+		CW0000000000000000003026 /* WatchConnectivityRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = CW0000000000000000003008 /* WatchConnectivityRelay.swift */; };
+		CW0000000000000000003027 /* CodexWatchCompanion.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CW0000000000000000000004 /* CodexWatchCompanion.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
+		CW0000000000000000003099 /* Phone Assets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CW0000000000000000000004 /* CodexWatchCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CodexWatchCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CW0000000000000000003001 /* CodexWatchPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CodexWatchPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CW0000000000000000003002 /* CodexWatchPhoneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexWatchPhoneApp.swift; sourceTree = "<group>"; };
+		CW0000000000000000003003 /* PhoneGatewayViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneGatewayViewModel.swift; sourceTree = "<group>"; };
+		CW0000000000000000003004 /* PhoneGatewayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneGatewayView.swift; sourceTree = "<group>"; };
+		CW0000000000000000003005 /* PhoneNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNotificationService.swift; sourceTree = "<group>"; };
+		CW0000000000000000003006 /* BridgeMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeMessage.swift; sourceTree = "<group>"; };
+		CW0000000000000000003007 /* WatchSocketClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSocketClient.swift; sourceTree = "<group>"; };
+		CW0000000000000000003008 /* WatchConnectivityRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectivityRelay.swift; sourceTree = "<group>"; };
+		CW0000000000000000003009 /* CodexWatchPhone-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		CW0000000000000000001004 /* CodexWatchCompanionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexWatchCompanionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CW0000000000000000002004 /* CodexWatchCompanionUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexWatchCompanionUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -69,13 +98,36 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CW0000000000000000003031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CW0000000000000000003034 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			files = (
+				CW0000000000000000003027 /* CodexWatchCompanion.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+			dstSubfolderSpec = 16;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXGroup section */
 		CW0000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
 				CW0000000000000000000007 /* CodexWatchCompanion */,
+				CW0000000000000000003010 /* CodexWatchPhone */,
+				CW0000000000000000003011 /* Shared */,
 				CW0000000000000000001007 /* CodexWatchCompanionTests */,
 				CW0000000000000000002007 /* CodexWatchCompanionUITests */,
 				CW0000000000000000000003 /* Products */,
@@ -86,10 +138,34 @@
 			isa = PBXGroup;
 			children = (
 				CW0000000000000000000004 /* CodexWatchCompanion.app */,
+				CW0000000000000000003001 /* CodexWatchPhone.app */,
 				CW0000000000000000001004 /* CodexWatchCompanionTests.xctest */,
 				CW0000000000000000002004 /* CodexWatchCompanionUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		CW0000000000000000003010 /* CodexWatchPhone */ = {
+			isa = PBXGroup;
+			children = (
+				CW0000000000000000003099 /* Phone Assets */,
+				CW0000000000000000003002 /* CodexWatchPhoneApp.swift */,
+				CW0000000000000000003003 /* PhoneGatewayViewModel.swift */,
+				CW0000000000000000003004 /* PhoneGatewayView.swift */,
+				CW0000000000000000003005 /* PhoneNotificationService.swift */,
+				CW0000000000000000003009 /* CodexWatchPhone-Info.plist */,
+			);
+			path = CodexWatchPhone;
+			sourceTree = "<group>";
+		};
+		CW0000000000000000003011 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				CW0000000000000000003006 /* BridgeMessage.swift */,
+				CW0000000000000000003007 /* WatchSocketClient.swift */,
+				CW0000000000000000003008 /* WatchConnectivityRelay.swift */,
+			);
+			path = CodexWatchCompanion;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -163,6 +239,27 @@
 			productReference = CW0000000000000000002004 /* CodexWatchCompanionUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		CW0000000000000000003040 /* CodexWatchPhone */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CW0000000000000000003062 /* Build configuration list for PBXNativeTarget "CodexWatchPhone" */;
+			buildPhases = (
+				CW0000000000000000003030 /* Sources */,
+				CW0000000000000000003031 /* Frameworks */,
+				CW0000000000000000003032 /* Resources */,
+				CW0000000000000000003034 /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CW0000000000000000003050 /* PBXTargetDependency */,
+			);
+			name = CodexWatchPhone;
+			packageProductDependencies = (
+			);
+			productName = CodexWatchPhone;
+			productReference = CW0000000000000000003001 /* CodexWatchPhone.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -184,6 +281,9 @@
 						CreatedOnToolsVersion = 26.0;
 						TestTargetID = CW0000000000000000000013;
 					};
+					CW0000000000000000003040 = {
+						CreatedOnToolsVersion = 26.0;
+					};
 				};
 			};
 			buildConfigurationList = CW000000000000000000001A /* Build configuration list for PBXProject "CodexWatchCompanion" */;
@@ -201,6 +301,7 @@
 			projectRoot = "";
 			targets = (
 				CW0000000000000000000013 /* CodexWatchCompanion */,
+				CW0000000000000000003040 /* CodexWatchPhone */,
 				CW0000000000000000001013 /* CodexWatchCompanionTests */,
 				CW0000000000000000002013 /* CodexWatchCompanionUITests */,
 			);
@@ -229,6 +330,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CW0000000000000000003032 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CW0000000000000000003028 /* Phone Assets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -253,6 +362,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CW0000000000000000003030 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CW0000000000000000003020 /* CodexWatchPhoneApp.swift in Sources */,
+				CW0000000000000000003021 /* PhoneGatewayViewModel.swift in Sources */,
+				CW0000000000000000003022 /* PhoneGatewayView.swift in Sources */,
+				CW0000000000000000003023 /* PhoneNotificationService.swift in Sources */,
+				CW0000000000000000003024 /* BridgeMessage.swift in Sources */,
+				CW0000000000000000003025 /* WatchSocketClient.swift in Sources */,
+				CW0000000000000000003026 /* WatchConnectivityRelay.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -265,6 +388,11 @@
 			isa = PBXTargetDependency;
 			target = CW0000000000000000000013 /* CodexWatchCompanion */;
 			targetProxy = CW0000000000000000002023 /* PBXContainerItemProxy */;
+		};
+		CW0000000000000000003050 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CW0000000000000000000013 /* CodexWatchCompanion */;
+			targetProxy = CW0000000000000000003051 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -329,7 +457,7 @@
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Debug;
 		};
@@ -386,71 +514,75 @@
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Release;
 		};
 		CW0000000000000000000020 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ONLY_ACTIVE_ARCH = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = NO;
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "CodexWatchCompanion-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Codex Watch";
 				INFOPLIST_KEY_LSApplicationCategoryType = WKWatchKitApp;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connects to a local Mac bridge to stream Codex pet state and microphone audio.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Streams microphone audio to the Codex Watch bridge while the mic button is held.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				"INFOPLIST_KEY_WKWatchOnly[sdk=watchos*]" = YES;
-				"INFOPLIST_KEY_WKWatchOnly[sdk=watchsimulator*]" = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = dev.codexwatchcompanion.phone;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.codexwatchcompanion;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.codexwatchcompanion.phone.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Debug;
 		};
 		CW0000000000000000000021 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ONLY_ACTIVE_ARCH = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = NO;
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "CodexWatchCompanion-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Codex Watch";
 				INFOPLIST_KEY_LSApplicationCategoryType = WKWatchKitApp;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connects to a local Mac bridge to stream Codex pet state and microphone audio.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Streams microphone audio to the Codex Watch bridge while the mic button is held.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				"INFOPLIST_KEY_WKWatchOnly[sdk=watchos*]" = YES;
-				"INFOPLIST_KEY_WKWatchOnly[sdk=watchsimulator*]" = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = dev.codexwatchcompanion.phone;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.codexwatchcompanion;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.codexwatchcompanion.phone.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Release;
 		};
@@ -556,6 +688,60 @@
 			};
 			name = Release;
 		};
+		CW0000000000000000003070 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CodexWatchPhone/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.codexwatchcompanion.phone;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		CW0000000000000000003071 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CodexWatchPhone/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.codexwatchcompanion.phone;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -591,6 +777,15 @@
 			buildConfigurations = (
 				CW000000000000000000201E /* Debug */,
 				CW000000000000000000201F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CW0000000000000000003062 /* Build configuration list for PBXNativeTarget "CodexWatchPhone" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CW0000000000000000003070 /* Debug */,
+				CW0000000000000000003071 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -43,6 +43,21 @@ struct ReadableMessage: Identifiable {
     let body: String
 }
 
+struct PendingCodexRequest: Identifiable {
+    let id: String
+    let method: String?
+    let title: String
+    let body: String
+    let command: String?
+    let reason: String?
+    let questionID: String?
+    let question: String?
+
+    var isInputRequest: Bool {
+        method == "item/tool/requestUserInput" || question != nil
+    }
+}
+
 private struct PersistedVisibleTask: Codable {
     let state: String
     let title: String
@@ -74,8 +89,56 @@ final class CompanionViewModel: ObservableObject {
     @Published private(set) var projectIndex: Int
     @Published private(set) var chatIndex: Int
     @Published private(set) var pickerItems: [CodexPickerItem] = []
-    @Published var transcriptReview: VoiceTranscript?
+    @Published var transcriptReview: VoiceTranscript? {
+        didSet {
+            if let draft = transcriptReview {
+                defaults.set(draft.text, forKey: "savedVoiceDraft")
+            } else if transcriptBeforeAppend == nil {
+                defaults.removeObject(forKey: "savedVoiceDraft")
+            }
+        }
+    }
+    private var transcriptBeforeAppend: VoiceTranscript?
+    @Published private(set) var isAwaitingVoiceTranscript = false
+    @Published private(set) var isRecordingPaused = false
+
+    func pauseRecording() {
+        guard isRecording else { cancelVoiceRecording(); return }
+        audio.stop()
+        isRecording = false
+        recordingRequested = false
+        isRecordRequestPending = false
+        isVoiceModeActive = false
+        isRecordingPaused = true
+        socket.send(BridgeMessage(type: "mic-pause"))
+    }
+
+    func transcribePausedRecording() {
+        guard isRecordingPaused else { return }
+        isRecordingPaused = false
+        isAwaitingVoiceTranscript = true
+        visualState = .running
+        socket.send(envelope(type: "mic-stop", state: visualState))
+        startTranscriptionWait()
+    }
+
+    func cancelVoiceRecording() {
+        recordingRequested = false
+        isRecordRequestPending = false
+        audio.stop()
+        isRecording = false
+        isVoiceModeActive = false
+        isRecordingPaused = false
+        isAwaitingVoiceTranscript = false
+        cancelTranscriptionWait()
+        socket.send(BridgeMessage(type: "mic-cancel"))
+        restoreAppendDraft()
+        statusTitle = "录音已取消"
+        statusBody = "可以重新说话"
+        visualState = .idle
+    }
     @Published var messageReader: ReadableMessage?
+    @Published private(set) var pendingCodexRequest: PendingCodexRequest?
     @Published var showingSettings = false
     @Published var showingPicker = false
     @Published var showingOnboarding = false
@@ -193,6 +256,8 @@ final class CompanionViewModel: ObservableObject {
     private var recordingRequested = false
     private var feedbackTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
+    private var transcriptionTask: Task<Void, Never>?
+    private let transcriptionTimeoutNanoseconds: UInt64
     private var lastHapticSignature: String?
     private var reconnectAttempt = 0
     private var serverURLCandidateIndex = 0
@@ -231,6 +296,7 @@ final class CompanionViewModel: ObservableObject {
     ]
 
     private var serverURLCandidates: [String] {
+        if serverURLString.hasPrefix("https://") { return [serverURLString] }
         var candidates = [serverURLString].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         for candidate in Self.fallbackServerURLStrings where !candidates.contains(candidate) {
             candidates.append(candidate)
@@ -250,7 +316,12 @@ final class CompanionViewModel: ObservableObject {
             "tap-to-talk",
             "digital-crown-project-chat",
             "project-chat-picker",
-            "new-chat"
+            "new-chat",
+            "iphone-gateway",
+            "remote-private-network",
+            "task-notifications",
+            "approval-control",
+            "user-input-control"
         ]
     }
 
@@ -259,14 +330,17 @@ final class CompanionViewModel: ObservableObject {
         audio: WatchAudioStreaming = WatchAudioStreamer(),
         runtimeKeeper: WatchRuntimeKeeping = WatchRuntimeKeeper(),
         haptics: WatchHapticPlaying = WatchHaptics(),
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        transcriptionTimeoutNanoseconds: UInt64 = 45_000_000_000
     ) {
         self.socket = socket
         self.audio = audio
         self.runtimeKeeper = runtimeKeeper
         self.haptics = haptics
         self.defaults = defaults
+        self.transcriptionTimeoutNanoseconds = transcriptionTimeoutNanoseconds
 
+        WatchRemoteCredential.installPending(defaults: defaults)
         let environmentURL = ProcessInfo.processInfo.environment["CODEX_WATCH_SERVER_URL"]
         let savedURL = defaults.string(forKey: "serverURLString")
         self.serverURLString = environmentURL ?? savedURL ?? Self.preferredServerURLString
@@ -279,8 +353,13 @@ final class CompanionViewModel: ObservableObject {
         self.crownTarget = CrownSelectionTarget(rawValue: savedTarget ?? "") ?? .chat
         self.selectedProjectOverride = defaults.string(forKey: "selectedProjectID")
         self.selectedChatOverride = defaults.string(forKey: "selectedChatID")
-        self.pickerItems = Self.defaultPickerItems(projectIndex: projectIndex, chatIndex: chatIndex)
+        self.pickerItems = []
         restorePersistedVisibleTask()
+        isAwaitingVoiceTranscript = socket is WatchHTTPBridgeClient && WatchVoiceJobs.shared.job != nil && !WatchVoiceJobs.shared.isFailed
+        isRecordingPaused = socket is WatchHTTPBridgeClient && WatchVoiceJobs.shared.isPaused
+        if let text = defaults.string(forKey: "savedVoiceDraft") {
+            transcriptReview = VoiceTranscript(title: "已识别文字", text: text)
+        }
         self.showingOnboarding = !defaults.bool(forKey: Self.didCompleteOnboardingKey)
             && !ProcessInfo.processInfo.arguments.contains("--ui-testing")
 
@@ -313,7 +392,7 @@ final class CompanionViewModel: ObservableObject {
         reconnectTask = nil
 
         let candidate = activeServerURLString
-        guard let url = URL(string: candidate), url.scheme?.hasPrefix("ws") == true else {
+        guard let url = URL(string: candidate), ["ws", "wss", "https"].contains(url.scheme ?? "") else {
             shouldReconnect = false
             statusTitle = "Invalid URL"
             statusBody = candidate
@@ -325,10 +404,11 @@ final class CompanionViewModel: ObservableObject {
             statusBody = "Linking"
             visualState = .waiting
         }
-        socket.connect(to: url, hello: envelope(type: "hello", state: visualState, items: pickerItems))
+        socket.connect(to: url, hello: envelope(type: "hello", state: visualState))
     }
 
     func disconnect() {
+        cancelTranscriptionWait()
         shouldReconnect = false
         reconnectTask?.cancel()
         reconnectTask = nil
@@ -342,12 +422,17 @@ final class CompanionViewModel: ObservableObject {
 
     private func handleConnectionState(_ state: ConnectionState) {
         connectionState = state
+        if state != .connected, transcriptionTask != nil, !(socket is WatchHTTPBridgeClient) {
+            failTranscription("连接已中断，请打开手机 Codex Watch 后重新录音。")
+            if state == .disconnected && shouldReconnect { scheduleReconnect() }
+            return
+        }
 
         switch state {
         case .connected:
             promoteActiveServerURL()
             resetReconnect()
-            if !isVoiceModeActive && !hasPersistentVisibleTask {
+            if !isVoiceModeActive && transcriptionTask == nil && !hasPersistentVisibleTask {
                 statusTitle = selectedPet.displayName
                 visualState = .idle
                 statusBody = state.title
@@ -359,7 +444,7 @@ final class CompanionViewModel: ObservableObject {
                 statusBody = state.title
             }
         case .disconnected:
-            if isRecording || isRecordRequestPending || isVoiceModeActive {
+            if !(socket is WatchHTTPBridgeClient) && (isRecording || isRecordRequestPending || isVoiceModeActive) {
                 cancelRecordingAfterConnectionLoss()
             }
             if shouldReconnect {
@@ -431,6 +516,7 @@ final class CompanionViewModel: ObservableObject {
     }
 
     private func cancelRecordingAfterConnectionLoss() {
+        restoreAppendDraft()
         recordingRequested = false
         isRecordRequestPending = false
         if isRecording {
@@ -459,6 +545,10 @@ final class CompanionViewModel: ObservableObject {
     func showPicker() {
         guard !isVoiceModeActive else { return }
         showingPicker = true
+        refreshPickerItems()
+    }
+
+    func refreshPickerItems() {
         socket.send(BridgeMessage(
             type: "picker-opened",
             pet: selectedPet.id,
@@ -470,7 +560,6 @@ final class CompanionViewModel: ObservableObject {
             chat: selectedChatID,
             projectIndex: projectIndex,
             chatIndex: chatIndex,
-            items: pickerItems,
             newChat: selectedNewChat
         ))
     }
@@ -481,6 +570,16 @@ final class CompanionViewModel: ObservableObject {
     }
 
     func selectPickerItem(_ item: CodexPickerItem) {
+        if item.chat != selectedChatID {
+            transcriptBeforeAppend = nil
+            transcriptReview = nil
+        }
+        // Never display the previous conversation's text or approval controls
+        // under a newly selected conversation title.
+        statusFullBody = nil
+        pendingCodexRequest = nil
+        hasUnreadMessage = false
+        visualState = .idle
         let target = pickerTarget(for: item)
         crownTarget = target
         defaults.set(crownTarget.rawValue, forKey: "crownTarget")
@@ -507,7 +606,7 @@ final class CompanionViewModel: ObservableObject {
         showingPicker = false
         let selectionBody = item.subtitle ?? (target == .project ? selectedProjectID : selectedChatID)
         statusTitle = item.title
-        statusBody = "Digital Crown"
+        statusBody = "正在获取回复…"
         socket.send(BridgeMessage(
             type: target == .project ? "project-selected" : "chat-selected",
             pet: selectedPet.id,
@@ -525,9 +624,18 @@ final class CompanionViewModel: ObservableObject {
             newChat: false
         ))
         pulseFeedback(target == .project ? .jumping : .waving)
+        if let data = defaults.data(forKey: "voiceRecoveredResult"),
+           let result = try? JSONDecoder().decode(BridgeMessage.self, from: data),
+           result.chat == selectedChatID { handle(result) }
     }
 
     func startNewChat(in project: CodexPickerItem? = nil) {
+        transcriptBeforeAppend = nil
+        transcriptReview = nil
+        statusFullBody = nil
+        pendingCodexRequest = nil
+        hasUnreadMessage = false
+        visualState = .idle
         crownTarget = .chat
         defaults.set(crownTarget.rawValue, forKey: "crownTarget")
 
@@ -547,7 +655,7 @@ final class CompanionViewModel: ObservableObject {
 
         showingPicker = false
         statusTitle = "New Chat"
-        statusBody = "Digital Crown"
+        statusBody = "点击说话，开始新对话。"
         socket.send(BridgeMessage(
             type: "chat-selected",
             pet: selectedPet.id,
@@ -593,6 +701,22 @@ final class CompanionViewModel: ObservableObject {
         beginRecording()
     }
 
+    func approvePendingRequest() {
+        sendPendingDecision("accept")
+    }
+
+    func approvePendingRequestForSession() {
+        sendPendingDecision("acceptForSession")
+    }
+
+    func declinePendingRequest() {
+        sendPendingDecision("decline")
+    }
+
+    func cancelPendingRequest() {
+        sendPendingDecision("cancel")
+    }
+
     func chatItems(for project: CodexPickerItem) -> [CodexPickerItem] {
         guard let projectID = project.project else { return [] }
         return pickerItems.filter { item in
@@ -626,8 +750,28 @@ final class CompanionViewModel: ObservableObject {
         pickerTarget(for: item) == .project
     }
 
+    func appendRecording() {
+        guard let draft = transcriptReview, !isVoiceModeActive, !isRecordRequestPending else { return }
+        transcriptBeforeAppend = draft
+        transcriptReview = nil
+        beginRecording()
+    }
+
+    private func restoreAppendDraft() {
+        guard let draft = transcriptBeforeAppend else { return }
+        transcriptReview = draft
+        transcriptBeforeAppend = nil
+    }
+
     func beginRecording() {
         guard !isRecording, !isRecordRequestPending else { return }
+        if socket is WatchHTTPBridgeClient, WatchVoiceJobs.shared.hasUnfinishedRecording, !isRecordingPaused {
+            statusTitle = "录音尚未处理完"
+            statusBody = "已保存的录音正在恢复，请等待文字出现后再补充。"
+            restoreAppendDraft()
+            return
+        }
+        cancelTranscriptionWait()
         recordingRequested = true
         isRecordRequestPending = true
         isVoiceModeActive = true
@@ -644,11 +788,19 @@ final class CompanionViewModel: ObservableObject {
                 self.statusTitle = "Mic blocked"
                 self.statusBody = "Permission denied"
                 self.visualState = .failed
+                self.restoreAppendDraft()
             } else {
                 self.isVoiceModeActive = false
                 self.visualState = self.connectionState == .connected ? .idle : .idle
             }
         }
+    }
+
+    func retrySavedRecording() {
+        isAwaitingVoiceTranscript = true
+        WatchVoiceJobs.shared.retry()
+        socket.send(BridgeMessage(type: "ping"))
+        if connectionState == .disconnected { connectIfPossible() }
     }
 
     func stopRecording() {
@@ -658,11 +810,13 @@ final class CompanionViewModel: ObservableObject {
         if isRecording {
             audio.stop()
             isRecording = false
+            isAwaitingVoiceTranscript = true
             socket.send(envelope(type: "mic-stop", state: visualState))
             isVoiceModeActive = false
             statusTitle = "Transcribing"
             statusBody = "Processing audio"
             visualState = .running
+            startTranscriptionWait()
             return
         }
         isVoiceModeActive = false
@@ -672,6 +826,8 @@ final class CompanionViewModel: ObservableObject {
     }
 
     func dismissTranscript() {
+        cancelTranscriptionWait()
+        transcriptBeforeAppend = nil
         transcriptReview = nil
         messageReader = nil
         statusTitle = selectedPet.displayName
@@ -687,7 +843,23 @@ final class CompanionViewModel: ObservableObject {
             return
         }
 
+        if let pendingRequest = pendingCodexRequest {
+            if pendingRequest.isInputRequest {
+                sendPendingInput(text, request: pendingRequest)
+                return
+            }
+            if let decision = approvalDecision(from: text) {
+                sendPendingDecision(decision)
+                return
+            }
+            statusTitle = "Say approve or deny"
+            statusBody = "Use the buttons for this request"
+            haptics.play(.failure)
+            return
+        }
+
         haptics.play(.start)
+        transcriptBeforeAppend = nil
         transcriptReview = nil
         messageReader = nil
         statusTitle = "Sending"
@@ -753,6 +925,7 @@ final class CompanionViewModel: ObservableObject {
         statusFullBody = nil
         showingPicker = false
         showingOnboarding = false
+        pendingCodexRequest = nil
         resetWaveform()
 
         switch scenario {
@@ -841,6 +1014,7 @@ final class CompanionViewModel: ObservableObject {
                 }
             }
             socket.send(envelope(type: "mic-start", state: .recording))
+            isRecordingPaused = false
             isRecording = true
             isVoiceModeActive = true
             statusTitle = "Listening"
@@ -854,12 +1028,42 @@ final class CompanionViewModel: ObservableObject {
             statusBody = error.localizedDescription
             visualState = .failed
             isRecording = false
+            restoreAppendDraft()
         }
     }
 
     private func handle(_ message: BridgeMessage) {
         switch message.type {
+        case "voice-empty":
+            isAwaitingVoiceTranscript = false
+            cancelTranscriptionWait()
+            restoreAppendDraft()
+            statusTitle = "没有识别到说话内容"
+            statusBody = "请重新录音"
+            visualState = .idle
+        case "voice-failed":
+            isAwaitingVoiceTranscript = false
+            cancelTranscriptionWait()
+            statusTitle = "录音已保留"
+            statusBody = message.body ?? "请稍后重新连接，恢复转写。"
+            visualState = .failed
+        case "voice-pending", "voice-missing":
+            if !isRecording {
+                isAwaitingVoiceTranscript = true
+                statusTitle = "录音已保存"
+                statusBody = "正在上传或转写，亮屏后会恢复结果。"
+                visualState = .running
+            }
         case "state":
+            if transcriptionTask != nil, message.state == "idle", message.event == nil {
+                return
+            }
+            if message.title == "Transcribing" {
+                startTranscriptionWait()
+            } else if message.state == "failed" || message.event != nil {
+                cancelTranscriptionWait()
+                clearPersistedVisibleTask()
+            }
             if let items = message.items {
                 updatePickerItems(items)
             }
@@ -883,18 +1087,24 @@ final class CompanionViewModel: ObservableObject {
             }
             statusBody = message.body ?? statusBody
             statusFullBody = message.text ?? message.body ?? statusFullBody
+            updatePendingRequest(from: message)
             persistVisibleTaskIfNeeded()
             playFeedback(for: message)
         case "error":
-            statusTitle = "Bridge error"
-            playHaptic(.failure, signature: "error:\(message.body ?? "unknown")")
-            if connectionState == .disconnected && shouldReconnect {
-                if !hasPersistentVisibleTask {
-                    statusBody = reconnectingStatusBody(for: message.body)
-                    visualState = .waiting
-                }
+            cancelTranscriptionWait()
+            restoreAppendDraft()
+            if !(socket is WatchHTTPBridgeClient) && (isRecording || isVoiceModeActive || isRecordRequestPending) {
+                cancelRecordingAfterConnectionLoss()
+            }
+            clearPersistedVisibleTask()
+            if shouldReconnect && isTransientConnectionError(message.body) {
+                statusTitle = "Reconnecting"
+                statusBody = "Connecting to Mac"
+                visualState = .waiting
                 scheduleReconnect()
             } else {
+                statusTitle = "Bridge error"
+                playHaptic(.failure, signature: "error:\(message.body ?? "unknown")")
                 statusBody = message.body ?? "Unknown"
                 visualState = .failed
             }
@@ -903,11 +1113,24 @@ final class CompanionViewModel: ObservableObject {
         case "picker-items":
             updatePickerItems(message.items ?? [])
         case "transcript":
-            let text = message.text ?? message.body ?? ""
+            if let id = message.requestID {
+                if let chat = message.chat, chat != selectedChatID { return }
+                guard defaults.string(forKey: "lastVoiceResultID") != id else { return }
+                if transcriptBeforeAppend == nil, let original = defaults.string(forKey: "savedVoiceDraft") {
+                    transcriptBeforeAppend = VoiceTranscript(title: "已识别文字", text: original)
+                }
+            }
+            cancelTranscriptionWait()
+            isAwaitingVoiceTranscript = false
+            let text = (message.text ?? message.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let original = transcriptBeforeAppend
+            transcriptBeforeAppend = nil
+            let combined = [original?.text, text].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
             transcriptReview = VoiceTranscript(
-                title: message.title ?? "Transcript",
-                text: text.isEmpty ? "No transcript text was returned." : text
+                title: original?.title ?? message.title ?? "Transcript",
+                text: combined.isEmpty ? "No transcript text was returned." : combined
             )
+            if let id = message.requestID { defaults.set(id, forKey: "lastVoiceResultID") }
             playHaptic(.notification, signature: "transcript:\(text.prefix(96))")
             statusTitle = selectedPet.displayName
             statusBody = connectionState == .connected ? "Bridge ready" : "Offline"
@@ -918,6 +1141,96 @@ final class CompanionViewModel: ObservableObject {
         default:
             statusBody = message.text ?? message.body ?? statusBody
         }
+    }
+
+    private func updatePendingRequest(from message: BridgeMessage) {
+        guard let event = message.event else { return }
+        switch event {
+        case "approval-needed", "input-needed":
+            guard let requestID = message.requestID, !requestID.isEmpty else { return }
+            pendingCodexRequest = PendingCodexRequest(
+                id: requestID,
+                method: message.requestMethod,
+                title: message.title ?? (event == "input-needed" ? "Input needed" : "Approval needed"),
+                body: message.body ?? "Codex is waiting for your response",
+                command: message.command,
+                reason: message.reason,
+                questionID: message.questionID,
+                question: message.question
+            )
+        case "task-complete", "task-failed":
+            pendingCodexRequest = nil
+        default:
+            break
+        }
+    }
+
+    private func sendPendingDecision(_ decision: String) {
+        guard let request = pendingCodexRequest else { return }
+        pendingCodexRequest = nil
+        transcriptReview = nil
+        messageReader = nil
+        statusTitle = "Response sent"
+        statusBody = "Codex is continuing"
+        visualState = .thinking
+        haptics.play(decision == "decline" || decision == "cancel" ? .failure : .success)
+        socket.send(BridgeMessage(
+            type: "approval-response",
+            pet: selectedPet.id,
+            state: PetVisualState.thinking.rawValue,
+            title: request.title,
+            body: request.body,
+            capabilities: capabilities,
+            target: crownTarget.rawValue,
+            requestID: request.id,
+            requestMethod: request.method,
+            decision: decision,
+            project: selectedProjectID,
+            chat: selectedChatID,
+            projectIndex: projectIndex,
+            chatIndex: chatIndex,
+            newChat: selectedNewChat
+        ))
+    }
+
+    private func sendPendingInput(_ answer: String, request: PendingCodexRequest) {
+        pendingCodexRequest = nil
+        transcriptReview = nil
+        messageReader = nil
+        statusTitle = "Response sent"
+        statusBody = "Codex is continuing"
+        visualState = .thinking
+        haptics.play(.success)
+        socket.send(BridgeMessage(
+            type: "input-response",
+            pet: selectedPet.id,
+            state: PetVisualState.thinking.rawValue,
+            title: request.title,
+            body: answer,
+            text: answer,
+            capabilities: capabilities,
+            target: crownTarget.rawValue,
+            requestID: request.id,
+            requestMethod: request.method,
+            questionID: request.questionID,
+            answer: answer,
+            project: selectedProjectID,
+            chat: selectedChatID,
+            projectIndex: projectIndex,
+            chatIndex: chatIndex,
+            newChat: selectedNewChat
+        ))
+    }
+
+    private func approvalDecision(from text: String) -> String? {
+        let normalized = text.lowercased()
+        if ["批准", "同意", "允许", "可以", "继续", "approve", "approved", "allow", "yes", "ok"].contains(where: { normalized.contains($0) }) {
+            return "accept"
+        }
+        if ["拒绝", "不同意", "不允许", "否", "取消", "deny", "denied", "decline", "cancel", "no"].contains(where: { normalized.contains($0) }) {
+            return "decline"
+        }
+        return nil
     }
 
     private func envelope(
@@ -1066,6 +1379,24 @@ final class CompanionViewModel: ObservableObject {
         return "Reconnecting"
     }
 
+    private func isTransientConnectionError(_ body: String?) -> Bool {
+        guard let body else { return false }
+        let normalized = body.lowercased()
+        let markers = [
+            "network error",
+            "connection",
+            "socket",
+            "timed out",
+            "timeout",
+            "software caused",
+            "http bridge",
+            "offline",
+            "中断",
+            "未连接"
+        ]
+        return markers.contains(where: normalized.contains)
+    }
+
     private func wrappedIndex(_ index: Int) -> Int {
         let count = 100
         return (index % count + count) % count
@@ -1118,12 +1449,17 @@ final class CompanionViewModel: ObservableObject {
     }
 
     private var persistentVisibleTaskState: PetVisualState? {
+        // Recording/transcription are local, temporary operations, not Codex
+        // tasks. Never restore them after a disconnect or app relaunch.
+        guard statusTitle != "Transcribing", statusTitle != "Listening" else { return nil }
         switch visualState {
         case .review:
             return hasUnreadMessage ? .review : nil
         case .thinking, .running, .runningLeft, .runningRight:
             return visualState
-        case .idle, .waiting, .failed, .waving, .jumping, .recording:
+        case .waiting:
+            return statusTitle == "已排队" ? .waiting : nil
+        case .idle, .failed, .waving, .jumping, .recording:
             return nil
         }
     }
@@ -1135,6 +1471,11 @@ final class CompanionViewModel: ObservableObject {
             let state = PetVisualState.desktopState(from: task.state)
         else { return }
 
+        guard task.title != "Transcribing", task.title != "Listening" else {
+            clearPersistedVisibleTask()
+            return
+        }
+
         visualState = state
         statusTitle = task.title
         statusBody = task.body
@@ -1143,7 +1484,10 @@ final class CompanionViewModel: ObservableObject {
     }
 
     private func persistVisibleTaskIfNeeded() {
-        guard let state = persistentVisibleTaskState else { return }
+        guard let state = persistentVisibleTaskState else {
+            clearPersistedVisibleTask()
+            return
+        }
         let signature = visibleTaskSignature(
             state: state,
             title: petMessageTitle,
@@ -1167,6 +1511,38 @@ final class CompanionViewModel: ObservableObject {
 
     private func clearPersistedVisibleTask() {
         defaults.removeObject(forKey: Self.persistedVisibleTaskKey)
+    }
+
+    private func startTranscriptionWait() {
+        if socket is WatchHTTPBridgeClient {
+            statusTitle = "录音已保存"
+            statusBody = "正在上传或转写，可以放下手腕。"
+            return
+        }
+        guard transcriptionTask == nil else { return }
+        clearPersistedVisibleTask()
+        let timeout = transcriptionTimeoutNanoseconds
+        transcriptionTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: timeout) }
+            catch { return }
+            self?.failTranscription("语音转文字超时。请检查手机与 Mac 的连接，再重新录音。")
+        }
+    }
+
+    private func cancelTranscriptionWait() {
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+    }
+
+    private func failTranscription(_ reason: String) {
+        isAwaitingVoiceTranscript = false
+        cancelTranscriptionWait()
+        restoreAppendDraft()
+        statusTitle = "语音未完成"
+        statusBody = reason
+        statusFullBody = reason
+        visualState = .failed
+        clearPersistedVisibleTask()
     }
 
     private func markCurrentVisibleTaskRead() {

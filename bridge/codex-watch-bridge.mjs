@@ -2,15 +2,30 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { loadDesktopPickerItems } from "./desktop-picker.mjs";
+import { readQueuedTurn, queuedTurnState, withFreshReader } from "./queued-turn.mjs";
+import { createPrivateNotifier } from "./private-notifier.mjs";
+import { pendingMonitorStore } from "./pending-monitors.mjs";
+import { createVoiceJobs } from "./voice-jobs.mjs";
+
+const notificationDirectory = path.join(os.homedir(), "Library", "Application Support", "CodexWatchRemote");
+const notifyPrivate = process.env.CODEX_WATCH_MOCK_APP_SERVER === "1" || process.env.NODE_TEST_CONTEXT
+  ? async () => false : createPrivateNotifier({
+  configPath: path.join(notificationDirectory, "bark.json"),
+  journalPath: path.join(notificationDirectory, "notification-deliveries.json"),
+  report: message => console.log(message)
+});
 
 const port = Number(process.env.CODEX_WATCH_PORT || 17842);
 const host = process.env.CODEX_WATCH_HOST || "::";
-const audioDir = path.join(process.cwd(), ".codex-watch", "audio");
+const runtimeDir = process.env.CODEX_WATCH_RUNTIME_DIR || path.join(process.cwd(), ".codex-watch");
+const audioDir = path.join(runtimeDir, "audio");
 const defaultCodexSessionsDir = path.join(os.homedir(), ".codex", "sessions");
 const codexAPIBaseURL = (process.env.CODEX_WATCH_CODEX_API_BASE_URL || "https://chatgpt.com/backend-api")
   .replace(/\/+$/, "");
@@ -18,11 +33,35 @@ const defaultTranscriptionModel = "gpt-4o-mini-transcribe";
 const showNetworkHints = process.env.CODEX_WATCH_SHOW_NETWORK_HINTS === "1";
 const verboseBridgeLogging = process.env.CODEX_WATCH_VERBOSE === "1";
 let codexAppServer = null;
+let codexAppTools = null;
+const queuedTurnMonitors = new Map();
 const clients = new Set();
 const httpClients = new Map();
 const durableStateBySelection = new Map();
 const readStateSignaturesBySelection = new Map();
 let latestDurableState = null;
+let monitorStore;
+let voiceJobs;
+function durableVoiceJobs() {
+  return voiceJobs ??= createVoiceJobs(path.join(process.env.NODE_TEST_CONTEXT || process.env.CODEX_WATCH_MOCK_APP_SERVER === "1" ? runtimeDir : notificationDirectory, "voice-jobs"), async message => {
+    const raw = path.join(audioDir, `job-${crypto.randomUUID()}.pcm-f32le.raw`);
+    const wav = raw + ".wav";
+    fs.writeFileSync(raw, Buffer.from(message.data, "base64"), { mode: 0o600 });
+    writePCMFloat32Wav(raw, wav, message);
+    const started = Date.now();
+    console.log("voice job transcription started", new Date(started).toISOString());
+    const text = await transcribeAudio(wav);
+    console.log("voice job transcription finished", new Date().toISOString(), "milliseconds", Date.now() - started);
+    return text;
+  });
+}
+
+function savedMonitors() {
+  return monitorStore ??= pendingMonitorStore(path.join(
+    process.env.NODE_TEST_CONTEXT || process.env.CODEX_WATCH_MOCK_APP_SERVER === "1" ? runtimeDir : notificationDirectory,
+    "pending-monitors.json"
+  ));
+}
 
 export function createBridgeServer() {
   const server = http.createServer(async (request, response) => {
@@ -43,6 +82,13 @@ export function createBridgeServer() {
       try {
         const client = getHTTPClient(clientIDFromURL(requestURL), request.socket);
         const message = JSON.parse(await readRequestBody(request));
+        if (["voice-job", "voice-result", "voice-wait"].includes(message.type)) {
+          const result = message.type === "voice-result"
+            ? durableVoiceJobs().handle(client.id, message)
+            : await durableVoiceJobs().wait(client.id, message);
+          jsonResponse(response, 200, { ok: true, messages: [result] });
+          return;
+        }
         handleText(client, JSON.stringify(message));
         jsonResponse(response, 200, { ok: true, messages: drainQueuedMessages(client) });
       } catch (error) {
@@ -97,6 +143,7 @@ export function createBridgeServer() {
       audioChannels: 1,
       pet: "codex",
       capabilities: [],
+      pendingServerRequests: new Map(),
       selection: {
         target: "chat",
         project: "project-1",
@@ -116,8 +163,7 @@ export function createBridgeServer() {
       state: "idle",
       title: "Codex",
       body: "Bridge linked",
-      items: client.pickerItems,
-      ...client.selection
+      items: client.pickerItems
     });
 
     socket.on("data", chunk => {
@@ -135,6 +181,10 @@ export function startBridge({ port: listenPort = port, host: listenHost = host }
   fs.mkdirSync(audioDir, { recursive: true });
   const server = createBridgeServer();
   server.listen(listenPort, listenHost, () => {
+    durableVoiceJobs();
+    for (const record of savedMonitors().list()) {
+      watchQueuedTurn({ pet: record.pet || "codex", selection: record.selection }, record.threadId, record.submission);
+    }
     const activePort = boundPort(server);
     console.log(`Codex Watch bridge listening on port ${activePort} at /codex-watch`);
     if (showNetworkHints) {
@@ -223,6 +273,7 @@ function handleText(client, text) {
   switch (message.type) {
     case "hello":
       console.log("hello", client.pet, client.capabilities.join(",") || "no-capabilities");
+      logVerbose("hello selection", JSON.stringify(client.selection));
       maybeOpenCodex();
       send(client, replayStateForClient(client) ?? {
         type: "state",
@@ -232,7 +283,7 @@ function handleText(client, text) {
         body: "Bridge ready",
         capabilities: client.capabilities,
         items: client.pickerItems,
-        ...client.selection
+        ...(isPlaceholderSelectionID(client.selection.chat, "chat") ? {} : client.selection)
       });
       refreshClientStateFromCodex(client).catch(error => {
         warnBridge("state refresh failed", error);
@@ -280,6 +331,11 @@ function handleText(client, text) {
     case "project-selected":
     case "chat-selected":
       handleSelection(client, message);
+      if (message.type === "chat-selected") {
+        refreshClientStateFromCodex(client).catch(error => {
+          warnBridge("selected task refresh failed", error);
+        });
+      }
       break;
     case "mic-start":
       console.log("mic-start", client.pet);
@@ -308,6 +364,10 @@ function handleText(client, text) {
       break;
     case "transcript-send":
       handleTranscriptSend(client, message);
+      break;
+    case "approval-response":
+    case "input-response":
+      handleServerRequestResponse(client, message);
       break;
     case "message-read":
       clearDurableStateForClient(client);
@@ -414,6 +474,7 @@ function sendTranscribingState(client, { bytes, savedPath }) {
 }
 
 async function transcribeSavedAudio(client, { bytes, savedPath, sampleRate, channels }) {
+  const transcriptionStartedAt = Date.now();
   if (!savedPath || bytes <= 0) {
     throw new Error("No watch audio was received.");
   }
@@ -421,6 +482,7 @@ async function transcribeSavedAudio(client, { bytes, savedPath, sampleRate, chan
   const wavPath = savedPath.replace(/\.pcm-f32le\.raw$/, ".wav");
   writePCMFloat32Wav(savedPath, wavPath, { sampleRate, channels });
   const text = await transcribeAudio(wavPath);
+  console.log("transcription timing", JSON.stringify({ inputBytes: bytes, elapsedMs: Date.now() - transcriptionStartedAt }));
   const trimmed = text.trim();
   if (!trimmed) {
     throw new Error("Transcription returned no text.");
@@ -519,6 +581,59 @@ async function startNewCodexThread(projectID) {
 
 async function submitTranscriptToCodex(client, threadId, text) {
   maybeOpenCodex();
+
+  const input = [{
+    type: "text",
+    text,
+    text_elements: []
+  }];
+
+  // The Codex desktop app already owns the writer for its open tasks. Use the
+  // app's local tool pipe when it is available so a Watch message is delivered
+  // through that owner instead of starting a second app-server writer.
+  const desktopTools = getCodexAppTools();
+  if (desktopTools) {
+    try {
+      await desktopTools.ensureReady();
+    } catch (error) {
+      warnBridge("Codex desktop app tools are unavailable; using app-server fallback", error);
+      desktopTools.dispose();
+    }
+
+    if (desktopTools.isReady()) {
+      let before = null;
+      try {
+        before = await desktopTools.readThread(threadId, {
+          turnLimit: 3,
+          includeOutputs: false,
+          timeoutMs: 1000
+        });
+      } catch (error) {
+        // An active desktop turn may temporarily refuse a read. Sending the
+        // Watch command must not wait on that optional snapshot.
+        logVerbose("Codex desktop thread snapshot before Watch send skipped", error.message);
+      }
+
+      // Do not catch a real send failure and silently retry through another
+      // writer: the first request may have reached Codex even if its response
+      // was interrupted. The direct app-server fallback is only used when the
+      // desktop app-tools pipe could not be opened at all.
+      await desktopTools.sendMessageToThread(threadId, text);
+      watchCodexDesktopThread(client, threadId, before);
+      send(client, {
+        type: "state",
+        pet: client.pet,
+        state: "thinking",
+        title: "Codex is thinking",
+        body: "Working on it",
+        capabilities: client.capabilities,
+        items: client.pickerItems,
+        ...client.selection
+      });
+      return;
+    }
+  }
+
   const appServer = getCodexAppServer();
   const watcher = watchCodexTurn(client, threadId);
 
@@ -530,11 +645,6 @@ async function submitTranscriptToCodex(client, threadId, text) {
     }, { timeoutMs: 30000 });
 
     const activeTurn = activeTurnFromResume(resume);
-    const input = [{
-      type: "text",
-      text,
-      text_elements: []
-    }];
 
     if (activeTurn) {
       await appServer.request("turn/steer", {
@@ -562,6 +672,30 @@ async function submitTranscriptToCodex(client, threadId, text) {
       });
     }
   } catch (error) {
+    if (isActiveWriterConflict(error)) {
+      try {
+        const receipt = await appServer.request("thread/queue/add", {
+          threadId,
+          clientUserMessageId: crypto.randomUUID(),
+          input
+        }, { timeoutMs: 30000 });
+        watcher.stop();
+        send(client, {
+          type: "state",
+          pet: client.pet,
+          state: "waiting",
+          title: "已排队",
+          body: "电脑上的 Codex 正在处理，指令已排队",
+          capabilities: client.capabilities,
+          items: client.pickerItems,
+          ...client.selection
+        });
+        watchQueuedTurn(client, threadId, receipt.queuedSubmission);
+        return;
+      } catch (queueError) {
+        error = new Error(`${error.message}；自动排队也失败：${queueError.message}`);
+      }
+    }
     watcher.stop();
     throw error;
   }
@@ -573,7 +707,20 @@ function watchCodexTurn(client, threadId) {
   let responseText = "";
   let lastPreviewMs = 0;
   let isClosed = false;
-  const sendTurnState = ({ state, title, body, text }) => {
+  const sendTurnState = ({
+    state,
+    title,
+    body,
+    text,
+    event,
+    eventID,
+    requestID,
+    requestMethod,
+    command,
+    reason,
+    questionID,
+    question
+  }) => {
     send(client, {
       type: "state",
       pet: client.pet,
@@ -581,11 +728,40 @@ function watchCodexTurn(client, threadId) {
       title,
       body,
       text,
+      event,
+      eventID,
+      requestID,
+      requestMethod,
+      command,
+      reason,
+      questionID,
+      question,
       capabilities: client.capabilities,
       items: client.pickerItems,
       ...client.selection
     });
   };
+
+  const unsubscribeServerRequest = appServer.onServerRequest((requestID, method, params = {}) => {
+    const requestThreadID = params.threadId || params.conversationId;
+    if (requestThreadID && requestThreadID !== threadId) {
+      return false;
+    }
+
+    const request = codexWatchServerRequestDescriptor(requestID, method, params, threadId);
+    if (!request) {
+      return false;
+    }
+
+    client.pendingServerRequests.set(String(requestID), {
+      id: requestID,
+      method,
+      params,
+      threadId
+    });
+    sendTurnState(request);
+    return true;
+  });
 
   const cleanupTimer = setTimeout(cleanup, 10 * 60 * 1000);
   cleanupTimer.unref();
@@ -639,18 +815,26 @@ function watchCodexTurn(client, threadId) {
         return;
       }
       const status = params.turn?.status || "completed";
+      void notifyPrivate({
+        event: status === "failed" ? "task-failed" : "task-complete",
+        eventID: turnEventID(threadId, params.turn?.id || turnId, status === "failed" ? "failed" : "complete")
+      });
       if (status === "failed") {
         sendTurnState({
           state: "failed",
           title: "Codex failed",
-          body: params.turn?.error?.message || "Open Codex for details"
+          body: params.turn?.error?.message || "Open Codex for details",
+          event: "task-failed",
+          eventID: turnEventID(threadId, params.turn?.id || turnId, "failed")
         });
       } else {
         sendTurnState({
           state: "review",
           title: "Codex replied",
           body: truncate(responseText.trim() || "Open Codex to review", 240),
-          text: responseText.trim()
+          text: responseText.trim(),
+          event: "task-complete",
+          eventID: turnEventID(threadId, params.turn?.id || turnId, "complete")
         });
       }
       cleanup();
@@ -664,12 +848,167 @@ function watchCodexTurn(client, threadId) {
     isClosed = true;
     clearTimeout(cleanupTimer);
     unsubscribe();
+    unsubscribeServerRequest();
   }
 
   return {
     stop: cleanup,
     isClosed: () => isClosed
   };
+}
+
+function turnEventID(threadId, turnId, event) {
+  return `turn:${threadId}:${turnId || "unknown"}:${event}`;
+}
+
+function codexWatchServerRequestDescriptor(requestID, method, params = {}, threadId) {
+  const eventID = `request:${threadId}:${String(requestID)}`;
+  const common = {
+    state: "review",
+    event: "approval-needed",
+    eventID,
+    requestID: String(requestID),
+    requestMethod: method
+  };
+
+  if (method === "item/commandExecution/requestApproval") {
+    const command = typeof params.command === "string"
+      ? params.command
+      : commandTextFromActions(params.commandActions);
+    return {
+      ...common,
+      title: "Approval needed",
+      body: params.reason || (command ? `Codex wants to run: ${truncate(command, 180)}` : "Codex is waiting for approval"),
+      text: command || undefined,
+      command: command || undefined,
+      reason: params.reason || undefined
+    };
+  }
+
+  if (method === "item/fileChange/requestApproval") {
+    return {
+      ...common,
+      title: "File change approval",
+      body: params.reason || "Codex wants to apply file changes",
+      reason: params.reason || undefined
+    };
+  }
+
+  if (method === "item/permissions/requestApproval") {
+    return {
+      ...common,
+      title: "Permission needed",
+      body: params.reason || "Codex requests additional permissions",
+      reason: params.reason || undefined
+    };
+  }
+
+  if (method === "item/tool/requestUserInput") {
+    const question = Array.isArray(params.questions) ? params.questions[0] : null;
+    const questionText = typeof question?.question === "string" ? question.question : "Codex is waiting for your input";
+    return {
+      ...common,
+      event: "input-needed",
+      title: "Input needed",
+      body: questionText,
+      questionID: typeof question?.id === "string" ? question.id : undefined,
+      question: questionText
+    };
+  }
+
+  if (method === "applyPatchApproval" || method === "execCommandApproval") {
+    return {
+      ...common,
+      title: "Approval needed",
+      body: params.reason || "Codex is waiting for approval",
+      command: Array.isArray(params.command) ? params.command.join(" ") : undefined,
+      reason: params.reason || undefined
+    };
+  }
+
+  return null;
+}
+
+function commandTextFromActions(actions) {
+  if (!Array.isArray(actions)) {
+    return "";
+  }
+  return actions
+    .map(action => typeof action?.command === "string" ? action.command : "")
+    .filter(Boolean)
+    .join(" && ");
+}
+
+function handleServerRequestResponse(client, message) {
+  const requestID = stringOrNull(message.requestID);
+  const pending = requestID ? client.pendingServerRequests.get(requestID) : null;
+  if (!pending) {
+    send(client, { type: "error", body: "That Codex approval request is no longer active." });
+    return;
+  }
+
+  const appServer = getCodexAppServer();
+  let result;
+  if (pending.method === "item/tool/requestUserInput") {
+    const answer = String(message.answer || message.text || message.body || "").trim();
+    const questionID = pending.params?.questions?.[0]?.id || message.questionID || "answer";
+    result = {
+      answers: {
+        [questionID]: { answers: [answer] }
+      }
+    };
+  } else if (pending.method === "item/permissions/requestApproval") {
+    const decision = normalizedApprovalDecision(message.decision);
+    result = ["accept", "acceptForSession"].includes(decision)
+      ? {
+          permissions: pending.params?.permissions || {},
+          scope: decision === "acceptForSession" ? "session" : "turn"
+        }
+      : { permissions: {}, scope: "turn" };
+  } else if (pending.method === "applyPatchApproval" || pending.method === "execCommandApproval") {
+    result = { decision: legacyApprovalDecision(message.decision) };
+  } else {
+    result = { decision: normalizedApprovalDecision(message.decision) };
+  }
+
+  try {
+    appServer.respondToServerRequest(pending.id, result);
+    client.pendingServerRequests.delete(requestID);
+    send(client, {
+      type: "state",
+      pet: client.pet,
+      state: "thinking",
+      title: "Approval received",
+      body: "Codex is continuing",
+      capabilities: client.capabilities,
+      items: client.pickerItems,
+      ...client.selection
+    });
+  } catch (error) {
+    send(client, { type: "error", body: error.message });
+  }
+}
+
+function normalizedApprovalDecision(value) {
+  const normalized = normalizeStatus(value);
+  if (["accept", "approve", "approved", "yes", "continue", "allow"].includes(normalized)) {
+    return "accept";
+  }
+  if (["session", "accept-for-session", "approved-for-session"].includes(normalized)) {
+    return "acceptForSession";
+  }
+  if (["cancel", "abort", "stop"].includes(normalized)) {
+    return "cancel";
+  }
+  return "decline";
+}
+
+function legacyApprovalDecision(value) {
+  const normalized = normalizedApprovalDecision(value);
+  if (normalized === "accept") return "approved";
+  if (normalized === "acceptForSession") return "approved_for_session";
+  if (normalized === "cancel") return "abort";
+  return { denied: { rejection: "Declined from Codex Watch" } };
 }
 
 function codexDesktopStateFromNotification(method, params = {}) {
@@ -834,8 +1173,283 @@ function activeTurnFromResume(resume) {
   return null;
 }
 
+function isActiveWriterConflict(error) {
+  return /active writer|thread[- ]store conflict|already has an active writer/i.test(
+    error?.message || String(error || "")
+  );
+}
+
+function turnsFromDesktopSnapshot(snapshot) {
+  return Array.isArray(snapshot?.turns)
+    ? snapshot.turns
+    : Array.isArray(snapshot?.thread?.turns)
+      ? snapshot.thread.turns
+      : [];
+}
+
+function latestDesktopTurn(snapshot) {
+  const turns = turnsFromDesktopSnapshot(snapshot);
+  return turns.length > 0 ? turns[turns.length - 1] : null;
+}
+
+function activeTurnFromDesktopSnapshot(snapshot) {
+  const turns = turnsFromDesktopSnapshot(snapshot);
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    if (["inProgress", "in-progress", "active", "running"].includes(turns[index]?.status)) {
+      return turns[index];
+    }
+  }
+  return null;
+}
+
+function latestAssistantTextFromDesktopSnapshot(snapshot) {
+  const turns = turnsFromDesktopSnapshot(snapshot);
+  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const items = Array.isArray(turns[turnIndex]?.items) ? turns[turnIndex].items : [];
+    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const text = assistantTextFromObject(items[itemIndex]);
+      if (text) {
+        return text;
+      }
+    }
+  }
+  return "";
+}
+
+function desktopSnapshotStatus(snapshot) {
+  const activeTurn = activeTurnFromDesktopSnapshot(snapshot);
+  if (activeTurn) {
+    return codexDesktopStateFromNotification("thread/status/changed", {
+      thread: snapshot?.thread,
+      threadRuntimeStatus: snapshot?.thread?.status,
+      turn: activeTurn
+    });
+  }
+  return codexDesktopStateFromNotification("thread/status/changed", {
+    thread: snapshot?.thread,
+    threadRuntimeStatus: snapshot?.thread?.status
+  });
+}
+
+function nativeStateMessage(client, state, title, body, extra = {}) {
+  return {
+    type: "state",
+    pet: client.pet,
+    state,
+    title,
+    body,
+    ...extra,
+    capabilities: client.capabilities,
+    items: client.pickerItems,
+    ...client.selection
+  };
+}
+
+function watchCodexDesktopThread(client, threadId, baseline) {
+  const desktopTools = getCodexAppTools();
+  if (!desktopTools) {
+    return;
+  }
+
+  const baselineTurns = turnsFromDesktopSnapshot(baseline);
+  const baselineIDs = new Set(
+    baselineTurns.map(turn => stringOrNull(turn?.id)).filter(Boolean)
+  );
+  const baselineLatest = latestDesktopTurn(baseline);
+  const baselineWasActive = Boolean(activeTurnFromDesktopSnapshot(baseline));
+  let stopped = false;
+  let timer = null;
+  let lastSignature = "";
+  const startedAt = Date.now();
+
+  const stop = () => {
+    if (stopped) {
+      return;
+    }
+    stopped = true;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const emit = (message) => {
+    const signature = durableStateSignature(message);
+    if (signature === lastSignature && !message.event) {
+      return;
+    }
+    lastSignature = signature;
+    void notifyPrivate(message);
+    send(client, message);
+  };
+
+  const schedule = () => {
+    if (stopped || !clients.has(client)) {
+      stop();
+      return;
+    }
+    timer = setTimeout(() => {
+      timer = null;
+      void poll();
+    }, 1200);
+    timer.unref();
+  };
+
+  const poll = async () => {
+    if (stopped || !clients.has(client)) {
+      stop();
+      return;
+    }
+
+    let snapshot;
+    try {
+      snapshot = await desktopTools.readThread(threadId, {
+        turnLimit: 8,
+        includeOutputs: false
+      });
+    } catch (error) {
+      warnBridge("Codex desktop thread watcher read failed", error);
+      schedule();
+      return;
+    }
+
+    const turns = turnsFromDesktopSnapshot(snapshot);
+    const latestTurn = latestDesktopTurn(snapshot);
+    const latestTurnID = stringOrNull(latestTurn?.id);
+    const isNewTurn = Boolean(latestTurnID && !baselineIDs.has(latestTurnID));
+    const activeTurn = activeTurnFromDesktopSnapshot(snapshot);
+    const snapshotState = desktopSnapshotStatus(snapshot);
+
+    if (snapshotState?.kind === "approval") {
+      emit(nativeStateMessage(
+        client,
+        "review",
+        "Approval needed",
+        "Codex is waiting for approval"
+      ));
+    } else if (snapshotState?.kind === "user-input") {
+      emit(nativeStateMessage(
+        client,
+        "review",
+        "Input needed",
+        "Codex is waiting for input"
+      ));
+    } else if (activeTurn) {
+      const preview = latestAssistantTextFromDesktopSnapshot(snapshot);
+      emit(nativeStateMessage(
+        client,
+        preview ? "running" : "thinking",
+        preview ? "Codex is replying" : "Codex is thinking",
+        preview ? truncate(preview, 180) : "Working on it",
+        preview ? { text: preview } : {}
+      ));
+    }
+
+    const status = normalizeStatus(latestTurn?.status);
+    const completed = ["completed", "complete", "done", "success", "succeeded"].includes(status);
+    const failed = ["failed", "failure", "error", "cancelled", "canceled"].includes(status);
+    const sameBaselineActiveTurnCompleted = Boolean(
+      baselineWasActive
+      && baselineLatest?.id
+      && latestTurnID === baselineLatest.id
+      && completed
+      && Date.now() - startedAt > 1000
+    );
+
+    if (failed && (isNewTurn || sameBaselineActiveTurnCompleted)) {
+      const errorText = latestTurn?.error?.message || "Open Codex for details";
+      emit(nativeStateMessage(
+        client,
+        "failed",
+        "Codex failed",
+        errorText,
+        {
+          event: "task-failed",
+          eventID: turnEventID(threadId, latestTurnID, "failed")
+        }
+      ));
+      stop();
+      return;
+    }
+
+    if (completed && (isNewTurn || sameBaselineActiveTurnCompleted)) {
+      const replyText = latestAssistantTextFromDesktopSnapshot(snapshot)
+        || latestAssistantTextForThread(threadId);
+      emit(nativeStateMessage(
+        client,
+        "review",
+        "Codex replied",
+        truncate(replyText || "Open Codex to review", 240),
+        {
+          text: replyText || undefined,
+          event: "task-complete",
+          eventID: turnEventID(threadId, latestTurnID, "complete")
+        }
+      ));
+      stop();
+      return;
+    }
+
+    // A desktop task may briefly report the old completed turn before the new
+    // queued turn is materialized. Keep polling instead of treating that old
+    // reply as the Watch request's completion.
+    if (Date.now() - startedAt > 10 * 60 * 1000) {
+      warnBridge("Codex desktop thread watcher timed out", new Error(threadId));
+      stop();
+      return;
+    }
+    schedule();
+  };
+
+  void poll();
+}
+
+function readFreshCodexState(read) {
+  if (process.env.CODEX_WATCH_MOCK_APP_SERVER === "1") {
+    return read((method, params) => getCodexAppServer().request(method, params));
+  }
+  // Never reuse the command connection's hydrated task snapshot. The desktop
+  // owns this task; read its persisted state through a short-lived reader.
+  return withFreshReader(() => new CodexAppServerClient(), read);
+}
+
+function watchQueuedTurn(client, threadId, submission) {
+  if (!submission?.clientUserMessageId) return;
+  const key = `${threadId}:${submission.clientUserMessageId}`;
+  if (queuedTurnMonitors.has(key)) return;
+  const selection = { ...client.selection, chat: threadId };
+  savedMonitors().put({ threadId, submission: { clientUserMessageId: submission.clientUserMessageId }, selection, pet: client.pet });
+  let timer;
+  let stopped = false;
+  let signature = "";
+  const stop = () => { stopped = true; clearTimeout(timer); queuedTurnMonitors.delete(key); };
+  queuedTurnMonitors.set(key, stop);
+  async function poll() {
+    try {
+      const { done, ...state } = await readFreshCodexState(request =>
+        readQueuedTurn(request, threadId, submission));
+      if (stopped) return;
+      const nextSignature = JSON.stringify(state);
+      if (nextSignature !== signature) {
+        logVerbose("queue observation", new Date().toISOString(), threadId, submission.clientUserMessageId, state.state, "clients", clients.size);
+        signature = nextSignature;
+        const message = { type: "state", pet: client.pet, ...state, ...selection };
+        await notifyPrivate(message);
+        rememberDurableState(message);
+        for (const recipient of clients) {
+          if (recipient.selection.chat === threadId) send(recipient, message);
+        }
+      }
+      if (done) { savedMonitors().remove(key); stop(); return; }
+    } catch (error) { warnBridge("Queued turn status retry", error); }
+    if (!stopped) { timer = setTimeout(poll, 2000); timer.unref(); }
+  }
+  timer = setTimeout(poll, 500);
+  timer.unref();
+}
+
 async function refreshClientStateFromCodex(client) {
-  if (client.selection.newChat) {
+  if (client.selection.newChat || isPlaceholderSelectionID(client.selection.chat, "chat")) {
     return;
   }
 
@@ -849,15 +1463,108 @@ async function refreshClientStateFromCodex(client) {
     return;
   }
 
+  // Recover the accepted queue state even after a bridge or phone restart.
+  // Reading the queue does not acquire the desktop task's writer lock.
+  try {
+    const queued = await getCodexAppServer().request("thread/queue/list", {
+      threadId: target.threadId, limit: 1
+    }, { timeoutMs: 5000 });
+    if (queued?.data?.length) {
+      applyTranscriptTargetSelection(client, target.item, target.threadId);
+      send(client, nativeStateMessage(client, "waiting", "已排队",
+        "指令已送达，等待电脑上的 Codex 处理"));
+      watchQueuedTurn(client, target.threadId, queued.data[0]);
+      return;
+    }
+  } catch (error) {
+    warnBridge("Queue state refresh unavailable", error);
+  }
+
+  // Recover a reply after reconnect without hydrating the entire task history.
+  try {
+    const page = await readFreshCodexState(request => request("thread/turns/list", {
+      threadId: target.threadId, limit: 3, itemsView: "summary", sortDirection: "desc"
+    }));
+    const latest = page?.data?.[0];
+    if (latest) {
+      applyTranscriptTargetSelection(client, target.item, target.threadId);
+      const { done, ...state } = queuedTurnState(target.threadId, latest);
+      const message = { ...nativeStateMessage(client, state.state, state.title, state.body), ...state };
+      if (readStateSignaturesBySelection.get(selectionKey(message)) !== durableStateSignature(message)) send(client, message);
+      const clientUserMessageId = latest.items?.find(item => item.type === "userMessage" && item.clientId)?.clientId;
+      if (!done && clientUserMessageId) watchQueuedTurn(client, target.threadId, { clientUserMessageId });
+      return;
+    }
+  } catch (error) { warnBridge("Bounded reply refresh unavailable", error); }
+
+  const desktopTools = getCodexAppTools();
+  if (desktopTools) {
+    try {
+      await desktopTools.ensureReady();
+      const snapshot = await desktopTools.readThread(target.threadId, {
+        turnLimit: 8,
+        includeOutputs: false
+      });
+      applyTranscriptTargetSelection(client, target.item, target.threadId);
+      const activeTurn = activeTurnFromDesktopSnapshot(snapshot);
+      const desktopState = desktopSnapshotStatus(snapshot);
+      if (desktopState?.kind === "approval") {
+        send(client, nativeStateMessage(
+          client,
+          "review",
+          "Approval needed",
+          "Codex is waiting for approval"
+        ));
+        return;
+      }
+      if (desktopState?.kind === "user-input") {
+        send(client, nativeStateMessage(
+          client,
+          "review",
+          "Input needed",
+          "Codex is waiting for input"
+        ));
+        return;
+      }
+      if (activeTurn) {
+        send(client, nativeStateMessage(
+          client,
+          "thinking",
+          "Codex is thinking",
+          "Working on it"
+        ));
+        return;
+      }
+      const replyText = latestAssistantTextFromDesktopSnapshot(snapshot)
+        || latestAssistantTextForThread(target.threadId);
+      if (replyText) {
+        const message = nativeStateMessage(
+          client,
+          "review",
+          "Codex replied",
+          truncate(replyText, 240),
+          { text: replyText }
+        );
+        if (readStateSignaturesBySelection.get(selectionKey(message)) === durableStateSignature(message)) {
+          return;
+        }
+        send(client, message);
+      }
+      return;
+    } catch (error) {
+      warnBridge("Codex desktop thread state refresh failed; using app-server fallback", error);
+      desktopTools.dispose();
+    }
+  }
+
   let resume = null;
   try {
-    resume = await getCodexAppServer().request("thread/resume", {
+    resume = await getCodexAppServer().request("thread/read", {
       threadId: target.threadId,
-      excludeTurns: false,
-      persistExtendedHistory: false
+      includeTurns: false
     }, { timeoutMs: 12000 });
   } catch (error) {
-    warnBridge("thread/resume state refresh failed", error);
+    warnBridge("thread/read state refresh failed", error);
   }
 
   const activeTurn = activeTurnFromResume(resume);
@@ -1011,7 +1718,22 @@ function latestAssistantTextForThread(threadId) {
 
   let finalAnswer = "";
   let latestAgentMessage = "";
-  const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+  // Very long desktop tasks can have hundreds of MB of history. Only inspect
+  // the tail for a recent reply, without blocking the phone's status refresh.
+  const descriptor = fs.openSync(file, "r");
+  let history;
+  let offset;
+  try {
+    const size = fs.fstatSync(descriptor).size;
+    const buffer = Buffer.alloc(Math.min(size, 4 * 1024 * 1024));
+    offset = size - buffer.length;
+    const length = fs.readSync(descriptor, buffer, 0, buffer.length, offset);
+    history = buffer.subarray(0, length).toString("utf8");
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  const lines = history.split("\n");
+  if (offset > 0) lines.shift();
   for (const line of lines) {
     let event;
     try {
@@ -1100,6 +1822,8 @@ function sendTranscriptSendFailure(client, error) {
     state: "failed",
     title: "Send failed",
     body: error.message,
+    event: "task-failed",
+    eventID: `failure:${Date.now()}`,
     capabilities: client.capabilities,
     items: client.pickerItems,
     ...client.selection
@@ -1163,7 +1887,8 @@ async function transcribeWithCodexDesktopBody(body, boundary, { refreshToken }) 
   const response = await fetch(`${codexAPIBaseURL}/transcribe`, {
     method: "POST",
     headers,
-    body
+    body,
+    signal: AbortSignal.timeout(60000)
   });
   if (response.status === 401 && !refreshToken) {
     return transcribeWithCodexDesktopBody(body, boundary, { refreshToken: true });
@@ -1191,7 +1916,8 @@ async function transcribeWithOpenAI(wavPath) {
     headers: {
       authorization: `Bearer ${process.env.OPENAI_API_KEY}`
     },
-    body: form
+    body: form,
+    signal: AbortSignal.timeout(60000)
   });
   const body = await response.text();
   let payload = {};
@@ -1214,8 +1940,348 @@ function getCodexAppServer() {
   return codexAppServer;
 }
 
+function getCodexAppTools() {
+  if (process.env.CODEX_WATCH_MOCK_APP_SERVER === "1"
+    || process.env.CODEX_WATCH_DISABLE_APP_TOOLS === "1") {
+    return null;
+  }
+  codexAppTools ??= new CodexDesktopAppToolsClient();
+  return codexAppTools;
+}
+
+function codexAppToolsPipeCandidates() {
+  const candidates = [
+    process.env.CODEX_WATCH_CODEX_APP_TOOLS_PIPE_PATH,
+    process.env.CODEX_APP_TOOLS_PIPE_PATH
+  ].filter(value => typeof value === "string" && value.trim());
+
+  try {
+    const processes = execFileSync("ps", ["eww", "-ax", "-o", "command="], {
+      encoding: "utf8",
+      maxBuffer: 8 * 1024 * 1024
+    });
+    for (const match of processes.matchAll(/CODEX_APP_TOOLS_PIPE_PATH=([^\s]+)/g)) {
+      candidates.push(match[1]);
+    }
+  } catch (error) {
+    warnBridge("Unable to inspect Codex app-tools processes", error);
+  }
+
+  return [...new Set(candidates.map(value => value.trim()))]
+    .filter(value => value.length > 0 && fs.existsSync(value));
+}
+
+function codexAppToolsCallerThreadID() {
+  const direct = [
+    process.env.CODEX_WATCH_CALLER_THREAD_ID,
+    process.env.CODEX_THREAD_ID,
+    process.env.CODEX_SESSION_ID
+  ].find(value => typeof value === "string" && value.trim());
+  if (direct) {
+    return direct.trim();
+  }
+
+  try {
+    const processes = execFileSync("ps", ["eww", "-ax", "-o", "command="], {
+      encoding: "utf8",
+      maxBuffer: 8 * 1024 * 1024
+    });
+    const match = processes.match(/CODEX_(?:THREAD_ID|SESSION_ID)=([A-Za-z0-9-]+)/);
+    return match?.[1] || null;
+  } catch {
+    return null;
+  }
+}
+
+function appToolText(result) {
+  if (!Array.isArray(result?.contentItems)) {
+    return "";
+  }
+  return result.contentItems
+    .filter(item => item?.type === "inputText" && typeof item.text === "string")
+    .map(item => item.text)
+    .join("\n")
+    .trim();
+}
+
+function appToolJSON(result) {
+  const text = appToolText(result);
+  if (!text) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+const CODEX_APP_TOOLS_MAX_FRAME_BYTES = 8 * 1024 * 1024;
+
+class CodexDesktopAppToolsClient {
+  socket = null;
+  pipePath = null;
+  connecting = null;
+  readyPromise = null;
+  nextRequestID = 1;
+  pending = new Map();
+  pendingData = Buffer.alloc(0);
+  availableTools = new Set();
+
+  async ensureReady() {
+    if (this.readyPromise) {
+      return this.readyPromise;
+    }
+
+    const ready = (async () => {
+      const errors = [];
+      for (const pipePath of codexAppToolsPipeCandidates()) {
+        try {
+          logVerbose("Codex desktop app-tools trying pipe", pipePath);
+          this.close();
+          await this.connect(pipePath);
+          const response = await this.requestRaw("tools/list", {
+            threadStartKind: "all"
+          }, { timeoutMs: 8000 });
+          const tools = Array.isArray(response?.tools) ? response.tools : [];
+          this.availableTools = new Set(tools.map(tool => tool?.name).filter(Boolean));
+          if (!this.availableTools.has("send_message_to_thread")
+            || !this.availableTools.has("read_thread")) {
+            throw new Error("Codex desktop app-tools catalog is missing thread controls.");
+          }
+          logVerbose("Codex desktop app-tools connected", pipePath);
+          return;
+        } catch (error) {
+          errors.push(`${pipePath}: ${error.message}`);
+          this.close();
+        }
+      }
+      throw new Error(
+        errors.length > 0
+          ? `Codex desktop app-tools pipe unavailable (${errors.join(" | ")})`
+          : "Codex desktop app-tools pipe was not found."
+      );
+    })();
+
+    this.readyPromise = ready.catch(error => {
+      this.readyPromise = null;
+      throw error;
+    });
+    return this.readyPromise;
+  }
+
+  isReady() {
+    return Boolean(
+      this.socket
+      && !this.socket.destroyed
+      && this.availableTools.has("send_message_to_thread")
+      && this.availableTools.has("read_thread")
+    );
+  }
+
+  async readThread(threadId, options = {}) {
+    const result = await this.callTool("read_thread", {
+      threadId,
+      turnLimit: options.turnLimit ?? 8,
+      includeOutputs: options.includeOutputs ?? false,
+      maxOutputCharsPerItem: options.maxOutputCharsPerItem ?? 3000
+    }, threadId, options.timeoutMs ?? 5000);
+    return appToolJSON(result);
+  }
+
+  async sendMessageToThread(threadId, prompt) {
+    return this.callTool("send_message_to_thread", {
+      threadId,
+      prompt
+    }, threadId);
+  }
+
+  async callTool(tool, argumentsValue, targetThreadID, timeoutMs = 30000) {
+    if (!this.isReady()) {
+      await this.ensureReady();
+    }
+    const callerThreadID = codexAppToolsCallerThreadID() || targetThreadID || "codex-watch";
+    const response = await this.requestRaw("tools/call", {
+      namespace: "codex_app",
+      tool,
+      arguments: argumentsValue,
+      callId: `codex-watch-${crypto.randomUUID()}`,
+      threadId: callerThreadID,
+      turnId: `codex-watch-${crypto.randomUUID()}`
+    }, { timeoutMs });
+    if (response?.success !== true) {
+      throw new Error(appToolText(response) || `Codex app tool ${tool} failed.`);
+    }
+    return response;
+  }
+
+  async requestRaw(method, params = {}, { timeoutMs = 20000 } = {}) {
+    if (!this.socket || this.socket.destroyed) {
+      throw new Error("Codex desktop app-tools pipe is not connected.");
+    }
+    const socket = this.socket;
+    const id = this.nextRequestID++;
+    const message = Buffer.from(JSON.stringify({
+      id,
+      jsonrpc: "2.0",
+      method,
+      params
+    }), "utf8");
+    if (message.length > CODEX_APP_TOOLS_MAX_FRAME_BYTES) {
+      throw new Error("Codex desktop app-tools request is too large.");
+    }
+    const frame = Buffer.alloc(message.length + 4);
+    frame.writeUInt32LE(message.length, 0);
+    message.copy(frame, 4);
+    logVerbose("Codex desktop app-tools request", method, id);
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`Timed out waiting for Codex app-tools ${method}.`));
+      }, timeoutMs);
+      timeout.unref();
+      this.pending.set(id, { resolve, reject, timeout });
+      try {
+        socket.write(frame);
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pending.delete(id);
+        reject(error);
+      }
+    });
+  }
+
+  connect(pipePath) {
+    if (this.socket && !this.socket.destroyed && this.pipePath === pipePath) {
+      return Promise.resolve();
+    }
+    if (this.connecting) {
+      return this.connecting;
+    }
+
+    this.pipePath = pipePath;
+    this.connecting = new Promise((resolve, reject) => {
+      const socket = net.createConnection(pipePath);
+      let settled = false;
+      const timeout = setTimeout(() => {
+        fail(new Error(`Timed out connecting to Codex app-tools pipe ${pipePath}.`));
+      }, 5000);
+      timeout.unref();
+      const fail = (error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        socket.destroy();
+        reject(error);
+      };
+      socket.once("error", fail);
+      socket.once("close", () => {
+        if (!settled) {
+          fail(new Error(`Codex app-tools pipe closed before connecting.`));
+        }
+      });
+      socket.once("connect", () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        socket.off("error", fail);
+        this.socket = socket;
+        this.pendingData = Buffer.alloc(0);
+        logVerbose("Codex desktop app-tools pipe connected", pipePath);
+        socket.on("data", chunk => this.handleData(socket, chunk));
+        socket.on("error", error => this.handleDisconnect(socket, error));
+        socket.on("close", () => this.handleDisconnect(socket, new Error("Codex app-tools pipe closed.")));
+        resolve();
+      });
+    }).finally(() => {
+      this.connecting = null;
+    });
+    return this.connecting;
+  }
+
+  handleData(socket, chunk) {
+    if (this.socket !== socket) {
+      return;
+    }
+    this.pendingData = Buffer.concat([this.pendingData, chunk]);
+    while (this.pendingData.length >= 4) {
+      const frameLength = this.pendingData.readUInt32LE(0);
+      if (frameLength > CODEX_APP_TOOLS_MAX_FRAME_BYTES) {
+        this.handleDisconnect(socket, new Error("Codex app-tools response was too large."));
+        socket.destroy();
+        return;
+      }
+      if (this.pendingData.length < frameLength + 4) {
+        return;
+      }
+      const payload = this.pendingData.subarray(4, frameLength + 4);
+      this.pendingData = this.pendingData.subarray(frameLength + 4);
+      let message;
+      try {
+        message = JSON.parse(payload.toString("utf8"));
+      } catch {
+        this.handleDisconnect(socket, new Error("Codex app-tools returned invalid JSON."));
+        socket.destroy();
+        return;
+      }
+      const pending = this.pending.get(Number(message.id));
+      if (!pending) {
+        continue;
+      }
+      this.pending.delete(Number(message.id));
+      clearTimeout(pending.timeout);
+      if (message.error) {
+        pending.reject(new Error(message.error.message || JSON.stringify(message.error)));
+      } else {
+        pending.resolve(message.result);
+      }
+    }
+  }
+
+  handleDisconnect(socket, error) {
+    if (this.socket !== socket) {
+      return;
+    }
+    logVerbose("Codex desktop app-tools pipe disconnected", error?.message || "unknown");
+    this.socket = null;
+    this.pendingData = Buffer.alloc(0);
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+    }
+    this.pending.clear();
+  }
+
+  close() {
+    const socket = this.socket;
+    logVerbose("Codex desktop app-tools close", Boolean(socket), this.readyPromise ? "ready-pending" : "no-ready-pending");
+    this.socket = null;
+    this.pendingData = Buffer.alloc(0);
+    this.availableTools.clear();
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error("Codex desktop app-tools connection closed."));
+    }
+    this.pending.clear();
+    socket?.destroy();
+  }
+
+  dispose() {
+    this.close();
+    this.pipePath = null;
+    this.readyPromise = null;
+  }
+}
+
 class MockCodexAppServerClient {
   notificationHandlers = new Set();
+  serverRequestHandlers = new Set();
+  serverRequestContinuations = new Map();
 
   async getAuthToken() {
     return "mock-token";
@@ -1224,6 +2290,10 @@ class MockCodexAppServerClient {
   async request(method, params = {}) {
     switch (method) {
       case "thread/resume":
+        if (process.env.CODEX_WATCH_MOCK_ACTIVE_WRITER === "1") {
+          throw new Error(`thread-store conflict: thread ${params.threadId} already has an active writer`);
+        }
+      case "thread/read":
         if (process.env.CODEX_WATCH_MOCK_RESUME_STATE === "thinking") {
           return {
             thread: {
@@ -1255,6 +2325,13 @@ class MockCodexAppServerClient {
             id: params.threadId,
             status: { type: "idle" },
             turns: []
+          }
+        };
+      case "thread/queue/add":
+        return {
+          queuedSubmission: {
+            threadId: params.threadId,
+            clientUserMessageId: params.clientUserMessageId
           }
         };
       case "thread/start": {
@@ -1291,18 +2368,31 @@ class MockCodexAppServerClient {
               }
             });
           }
-          for (const delta of mockReplyDeltas()) {
-            this.emitNotification("item/agentMessage/delta", {
+          const continueTurn = () => {
+            for (const delta of mockReplyDeltas()) {
+              this.emitNotification("item/agentMessage/delta", {
+                threadId,
+                turnId,
+                itemId: "mock-agent-message",
+                delta
+              });
+            }
+            this.emitNotification("turn/completed", {
               threadId,
-              turnId,
-              itemId: "mock-agent-message",
-              delta
+              turn: { id: turnId, status: "completed", items: [] }
             });
+          };
+          const requestMethod = process.env.CODEX_WATCH_MOCK_SERVER_REQUEST;
+          if (requestMethod) {
+            this.serverRequestContinuations.set("mock-request-1", continueTurn);
+            this.emitServerRequest(
+              "mock-request-1",
+              requestMethod,
+              mockServerRequestParams(requestMethod, threadId, turnId)
+            );
+            return;
           }
-          this.emitNotification("turn/completed", {
-            threadId,
-            turn: { id: turnId, status: "completed", items: [] }
-          });
+          continueTurn();
         });
         return {};
       }
@@ -1318,11 +2408,70 @@ class MockCodexAppServerClient {
     };
   }
 
+  onServerRequest(handler) {
+    this.serverRequestHandlers.add(handler);
+    return () => {
+      this.serverRequestHandlers.delete(handler);
+    };
+  }
+
+  respondToServerRequest(id, result) {
+    if (!result) return;
+    const continuation = this.serverRequestContinuations.get(String(id));
+    if (!continuation) return;
+    this.serverRequestContinuations.delete(String(id));
+    queueMicrotask(continuation);
+  }
+
+  emitServerRequest(id, method, params) {
+    for (const handler of this.serverRequestHandlers) {
+      if (handler(id, method, params) === true) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   emitNotification(method, params) {
     for (const handler of this.notificationHandlers) {
       handler(method, params);
     }
   }
+}
+
+function mockServerRequestParams(method, threadId, turnId) {
+  if (method === "item/commandExecution/requestApproval") {
+    return {
+      threadId,
+      turnId,
+      itemId: "mock-command-item",
+      command: "echo approved",
+      reason: "The mock command needs approval."
+    };
+  }
+  if (method === "item/fileChange/requestApproval") {
+    return {
+      threadId,
+      turnId,
+      itemId: "mock-file-item",
+      reason: "The mock file change needs approval."
+    };
+  }
+  if (method === "item/tool/requestUserInput") {
+    return {
+      threadId,
+      turnId,
+      itemId: "mock-input-item",
+      isBlocking: true,
+      questions: [{ id: "answer", header: "Answer", question: "What should Codex do next?" }]
+    };
+  }
+  return {
+    threadId,
+    turnId,
+    itemId: "mock-request-item",
+    reason: "The mock request needs approval."
+  };
 }
 
 function appendAgentDelta(current, delta) {
@@ -1369,6 +2518,7 @@ class CodexAppServerClient {
   nextRequestID = 1;
   pending = new Map();
   notificationHandlers = new Set();
+  serverRequestHandlers = new Set();
 
   async getAuthToken({ refreshToken }) {
     const status = await this.request("getAuthStatus", {
@@ -1389,6 +2539,13 @@ class CodexAppServerClient {
     this.notificationHandlers.add(handler);
     return () => {
       this.notificationHandlers.delete(handler);
+    };
+  }
+
+  onServerRequest(handler) {
+    this.serverRequestHandlers.add(handler);
+    return () => {
+      this.serverRequestHandlers.delete(handler);
     };
   }
 
@@ -1503,10 +2660,13 @@ class CodexAppServerClient {
     }
 
     if ("id" in message && typeof message.method === "string") {
-      this.respondToServerRequest(message.id, {
-        code: -32601,
-        message: `Unsupported server request: ${message.method}`
-      });
+      const handled = this.emitServerRequest(message.id, message.method, message.params || {});
+      if (!handled) {
+        this.respondToServerRequest(message.id, undefined, {
+          code: -32601,
+          message: `Unsupported server request: ${message.method}`
+        });
+      }
     }
   }
 
@@ -1520,9 +2680,22 @@ class CodexAppServerClient {
     }
   }
 
-  respondToServerRequest(id, error) {
+  emitServerRequest(id, method, params) {
+    let handled = false;
+    for (const handler of this.serverRequestHandlers) {
+      try {
+        handled = handler(id, method, params) === true || handled;
+      } catch (error) {
+        warnBridge("codex app-server server-request handler failed", error);
+      }
+    }
+    return handled;
+  }
+
+  respondToServerRequest(id, result = {}, error) {
     try {
-      this.proc?.stdin?.write(`${JSON.stringify({ id, error })}\n`);
+      const response = error ? { id, error } : { id, result };
+      this.proc?.stdin?.write(`${JSON.stringify(response)}\n`);
     } catch {}
   }
 
@@ -1558,12 +2731,14 @@ class CodexAppServerClient {
     this.proc = null;
     this.readyPromise = null;
     this.stdoutBuffer = "";
+    this.serverRequestHandlers.clear();
   }
 }
 
 function resolveCodexCLIPath() {
   const candidates = [
     process.env.CODEX_CLI_PATH,
+    "/Applications/ChatGPT.app/Contents/Resources/codex",
     "/Applications/Codex.app/Contents/Resources/codex",
     "/opt/homebrew/bin/codex",
     "/usr/local/bin/codex"
@@ -1673,6 +2848,8 @@ function sendTranscriptionFailure(client, error) {
     state: "failed",
     title: "Transcription unavailable",
     body: error.message,
+    event: "task-failed",
+    eventID: `failure:${Date.now()}`,
     capabilities: client.capabilities,
     items: client.pickerItems,
     ...client.selection
@@ -1765,12 +2942,20 @@ function normalizePickerItems(items) {
 
 function loadCodexPickerItems() {
   try {
+    if (!process.env.CODEX_SESSIONS_DIR) {
+      const indexed = loadDesktopPickerItems(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
+      if (indexed !== null) return indexed;
+    }
     const sessionFiles = findSessionFiles(currentCodexSessionsDir())
       .map(file => ({ file, mtimeMs: fs.statSync(file).mtimeMs }))
+      .filter(({ file }) => fs.statSync(file).size <= 8 * 1024 * 1024)
       .sort((left, right) => right.mtimeMs - left.mtimeMs)
       .slice(0, Number(process.env.CODEX_WATCH_MAX_SESSIONS || 500));
     const sessions = sessionFiles
-      .map(({ file, mtimeMs }) => readSessionSummary(file, mtimeMs))
+      .map(({ file, mtimeMs }) => {
+        try { return readSessionSummary(file, mtimeMs); }
+        catch { return null; }
+      })
       .filter(Boolean);
     return buildPickerItems(sessions);
   } catch (error) {
@@ -1939,19 +3124,7 @@ function buildPickerItems(sessions) {
 }
 
 function fallbackPickerItems() {
-  const cwd = process.cwd();
-  const project = projectIDForPath(cwd);
-  return [
-    {
-      id: project,
-      title: projectTitle(cwd),
-      subtitle: compactPath(cwd),
-      kind: "project",
-      section: "projects",
-      project,
-      projectIndex: 0
-    }
-  ];
+  return [];
 }
 
 function projectIDForPath(value) {
@@ -2036,6 +3209,11 @@ function rememberDurableState(message) {
   if (!message || message.type !== "state") {
     return;
   }
+  // Voice transport progress belongs to one live recording, not a Codex
+  // task. Replaying it after reconnect leaves the watch waiting forever.
+  if (["Listening", "Transcribing"].includes(message.title)) {
+    return;
+  }
   const state = normalizeStatus(message.state);
   if (!isDurableWatchState(state)) {
     return;
@@ -2058,7 +3236,12 @@ function rememberDurableState(message) {
 }
 
 function replayStateForClient(client) {
-  const durableState = durableStateBySelection.get(selectionKey(client.selection)) || latestDurableState;
+  const chat = client.selection.chat;
+  const hasSelectedChat = chat && !isPlaceholderSelectionID(chat, "chat");
+  const durableState = durableStateBySelection.get(selectionKey(client.selection))
+    || (hasSelectedChat
+      ? [...durableStateBySelection.values()].reverse().find(value => value.chat === chat)
+      : latestDurableState);
   if (!durableState) {
     return null;
   }
@@ -2067,7 +3250,7 @@ function replayStateForClient(client) {
     pet: client.pet,
     capabilities: client.capabilities,
     items: client.pickerItems,
-    ...client.selection
+    ...(hasSelectedChat ? client.selection : {})
   };
 }
 
@@ -2086,6 +3269,7 @@ function clearDurableStateForClient(client) {
 
 function isDurableWatchState(state) {
   return [
+    "waiting",
     "review",
     "thinking",
     "running",
@@ -2114,6 +3298,7 @@ function durableStateSignature(value = {}) {
 }
 
 function send(client, message) {
+  if (message.type === "state") logVerbose("state sent", new Date().toISOString(), message.state, message.title, message.chat);
   rememberDurableState(message);
   if (Array.isArray(client.queue)) {
     client.queue.push(message);
@@ -2147,6 +3332,7 @@ function getHTTPClient(id, socket) {
     audioChannels: 1,
     pet: "codex",
     capabilities: [],
+    pendingServerRequests: new Map(),
     selection: {
       target: "chat",
       project: "project-1",
@@ -2184,7 +3370,7 @@ function readRequestBody(request) {
     let size = 0;
     request.on("data", chunk => {
       size += chunk.length;
-      if (size > 16 * 1024 * 1024) {
+      if (size > 64 * 1024 * 1024) {
         reject(new Error("Request body too large"));
         request.destroy();
         return;
@@ -2213,6 +3399,7 @@ function isMainModule() {
 }
 
 export function resetBridgeStateForTests() {
+  for (const stop of queuedTurnMonitors.values()) stop();
   for (const client of clients) {
     try {
       client.audioStream?.destroy();
@@ -2224,6 +3411,8 @@ export function resetBridgeStateForTests() {
   durableStateBySelection.clear();
   readStateSignaturesBySelection.clear();
   latestDurableState = null;
+  codexAppTools?.dispose?.();
+  codexAppTools = null;
   codexAppServer?.dispose?.();
   codexAppServer = null;
 }

@@ -2,7 +2,8 @@ import SwiftUI
 
 @main
 struct CodexWatchCompanionApp: App {
-    @StateObject private var model = CompanionViewModel()
+    @WKExtensionDelegateAdaptor(VoiceBackgroundDelegate.self) private var backgroundDelegate
+    @StateObject private var model = CompanionViewModel(socket: WatchHTTPBridgeClient())
 
     var body: some Scene {
         WindowGroup {

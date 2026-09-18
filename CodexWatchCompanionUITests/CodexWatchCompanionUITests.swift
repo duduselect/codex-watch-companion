@@ -1,6 +1,18 @@
 import XCTest
 
 final class CodexWatchCompanionUITests: XCTestCase {
+    func testListFirstHomeOpensConversationWithSpeakButton() {
+        let app = launchApp(scenario: "picker-many")
+        XCTAssertTrue(app.staticTexts["项目与对话"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["primary-hand-gesture-shortcut"].exists)
+        app.staticTexts["Project 1"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Chat 1"].firstMatch.waitForExistence(timeout: 5))
+        app.staticTexts["Chat 1"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["conversation-speak"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["conversation-reply"].exists)
+        XCTAssertFalse(app.buttons["mascot-voice-button"].exists)
+    }
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
@@ -93,7 +105,11 @@ final class CodexWatchCompanionUITests: XCTestCase {
 
         XCTAssertTrue(app.descendants(matching: .any)["transcript-review"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["transcript-review-body"].label.contains("inlineCode"))
-        XCTAssertTrue(app.buttons["Send"].exists)
+        let body = app.staticTexts["transcript-review-body"]
+        XCTAssertTrue(body.isHittable)
+        XCTAssertGreaterThan(body.frame.height, 30)
+        XCTAssertTrue(app.buttons["补充录音"].isHittable, app.debugDescription)
+        XCTAssertTrue(app.buttons["发送"].isHittable, app.debugDescription)
     }
 
     func testVoiceScenarioShowsCenteredWaveformOnly() {

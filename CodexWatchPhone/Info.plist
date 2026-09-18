@@ -20,27 +20,23 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>CodexWatchDefaultMacHost</key>
-	<string>$(CODEX_WATCH_DEFAULT_MAC_HOST)</string>
+	<key>CodexWatchDefaultBridgeURL</key>
+	<string>$(CODEX_WATCH_DEFAULT_BRIDGE_URL)</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Connects to a local Mac bridge to stream Codex pet state and microphone audio.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Streams microphone audio to the Codex Watch bridge while the mic button is held.</string>
+	<string>Connects to the Mac Codex bridge so the paired Apple Watch can control Codex remotely.</string>
+	<key>UILaunchScreen</key>
+	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>WKApplication</key>
-	<true/>
-	<key>UIBackgroundModes</key>
-	<array><string>audio</string></array>
-	<key>WKCompanionAppBundleIdentifier</key>
-	<string>dev.codexwatchcompanion.phone</string>
 </dict>
 </plist>
